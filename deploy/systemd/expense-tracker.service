@@ -1,0 +1,18 @@
+[Unit]
+Description=Expense Tracker Node.js Backend
+After=network.target
+
+[Service]
+Type=simple
+User=expenseapp
+Group=expenseapp
+WorkingDirectory=/opt/expense-tracker
+ExecStart=/usr/bin/node /opt/expense-tracker/server.js
+Restart=always
+RestartSec=5
+EnvironmentFile=/opt/expense-tracker/.env
+StandardOutput=append:/var/log/expense-tracker/expense-tracker.log
+StandardError=append:/var/log/expense-tracker/expense-tracker-error.log
+
+[Install]
+WantedBy=multi-user.target

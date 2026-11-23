@@ -1,0 +1,17 @@
+[Unit]
+Description=Expense Tracker Frontend
+After=network.target nginx.service
+Requires=nginx.service
+
+[Service]
+Type=oneshot
+User=frontendapp
+Group=frontendapp
+WorkingDirectory=/opt/expense-frontend
+ExecStart=/usr/bin/true
+RemainAfterExit=yes
+StandardOutput=append:/var/log/expense-frontend/frontend.log
+StandardError=append:/var/log/expense-frontend/frontend-error.log
+
+[Install]
+WantedBy=multi-user.target
