@@ -1,387 +1,209 @@
-Expense Tracker — Complete AWS Three-Tier Deployment Guide
-
-Purpose: This README explains how to build, configure, deploy, test, monitor, and troubleshoot the Expense Tracker application from beginning to end.
-
-Experience level: Beginner-friendly. Follow the steps in order. Commands are labelled with the EC2 server where they must be executed.
-
-Table of contents
-
-Project overview
-
-How the application works
-
-Project folder structure
-
-Prerequisites
-
-Plan the AWS environment
-
-Create the security groups
-
-Launch the three EC2 instances
-
-Connect to the instances
-
-Configure the database server
-
-Configure the backend server
-
-Configure the frontend server
-
-Configure the custom domain using Route 53
-
-Deploy the application files
-
-Start and enable the services
-
-Test the complete application
-
-Verify the database records
-
-Application and server logs
-
-Reboot and automatic-startup verification
-
-Security recommendations
-
-Troubleshooting guide
-
-Final completion checklist
-
-Useful commands reference
-
-Current project scope and limitations
-
-1. Project overview
-
-This project is an Expense Tracker application deployed on three Ubuntu EC2 instances in AWS.
-
-Tier
-
-AWS server
-
-Technology
-
-Purpose
-
-Presentation
-
-Frontend EC2
-
-HTML, CSS, JavaScript, Nginx
-
-Displays the application in the browser
-
-Application
-
-Backend EC2
-
-Node.js, Express.js
-
-Handles API requests and application logic
-
-Data
-
-Database EC2
-
-MySQL
-
-Stores expense records
-
-Application capabilities
-
-The application supports:
-
-Adding a new expense.
-
-Retrieving and displaying saved expenses.
-
-Updating an existing expense.
-
-Deleting an expense.
-
-Storing expense information in MySQL.
-
-Serving frontend files through Nginx.
-
-Forwarding frontend API requests to the backend through an Nginx reverse proxy.
-
-Running the backend as a Linux systemd service.
-
-Starting Nginx and the backend automatically after an EC2 reboot.
-
-Recording backend application logs and Nginx access/error logs.
-
-Accessing the application using the frontend EC2 public IP.
-
-Accessing the application using a custom domain registered through Hostinger and configured with Amazon Route 53.
-
-Example expense fields
-
-Field
-
-Description
-
-id
-
-Automatically generated expense ID
-
-title
-
-Expense title
-
-amount
-
-Expense amount
-
-category
-
-Expense category
-
-expense_date
-
-Date of the expense
-
-description
-
-Optional description
-
-created_at
-
-Record creation timestamp
-
-API operations
-
-The backend supports all four CRUD operations:
-
-Operation
-
-HTTP method
-
-API endpoint
-
-Purpose
-
-Create
-
-POST
-
-/api/expenses
-
-Add a new expense
-
-Read
-
-GET
-
-/api/expenses
-
-Retrieve expenses
-
-Update
-
-PUT
-
-/api/expenses/:id
-
-Update an existing expense
-
-Delete
-
-DELETE
-
-/api/expenses/:id
-
-Delete an expense
-
-CRUD stands for Create, Read, Update and Delete.
-
-2. How the application works
-
-The application uses a three-tier architecture.
-
-2.1 Architecture and request flow
-
-                    USER'S BROWSER
-                          |
-              -------------------------
-              |                       |
-       Domain Access              Direct IP Access
-       devcloud.store             Public-IP:8080
-              |                       |
-              v                       v
-        AMAZON ROUTE 53          FRONTEND EC2
-              |                   NGINX :8080
-              v                       |
-        FRONTEND EC2                  |
-          NGINX :80                   |
-              |                       |
-              -----------+------------
-                         |
-                 Serves HTML, CSS,
-                 and JavaScript
-                         |
-                 Browser calls API
-                   /api/expenses
-                         |
-                         v
-                  NGINX REVERSE
-                     PROXY
-                         |
-                         | Private network
-                         | Backend :5000
-                         v
-                    BACKEND EC2
-                  Node.js + Express
-                         |
-                  Processes CRUD API
-                         |
-                         | Private network
-                         | MySQL :3306
-                         v
-                   DATABASE EC2
-                       MySQL
-                         |
-                  expense_tracker
-                         |
-                    expenses table
-
-2.2 Request flow explained
-
-A user opens the application using the domain or frontend EC2 public IP.
-
-For domain access, Route 53 resolves the domain name to the frontend public IP.
-
-Nginx receives the HTTP request.
-
-Nginx serves the frontend HTML, CSS and JavaScript files.
-
-The browser sends API requests using /api/expenses.
-
-Nginx forwards API requests to the backend private IP on port 5000.
-
-Express.js processes the request.
-
-The backend communicates with MySQL on port 3306.
-
-MySQL performs the required database operation.
-
-The response returns through the backend and Nginx to the browser.
-
-Important: The browser does not connect directly to the database or backend private IP. It sends requests to the frontend's /api/expenses path. Nginx forwards those requests to the backend over the VPC private network.
-
-2.3 Application URLs
-
-Access method
-
-URL
-
-Purpose
-
-Custom domain
-
-http://devcloud.store
-
-Main application URL
-
-WWW domain
-
-http://www.devcloud.store
-
-Alternative domain URL
-
-Direct public IP
-
-http://54.152.118.78:8080
-
-Direct frontend access
-
-Backend API
-
-http://BACKEND_PRIVATE_IP:5000/api/expenses
-
-Private backend endpoint
-
-The domain uses the default HTTP port 80. The direct IP URL explicitly uses port 8080.
-
-2.4 Ports used
-
-Port
-
-Protocol
-
-Source
-
-Destination
-
-Purpose
-
-22
-
-TCP
-
-Your public IP /32
-
-EC2 instances
-
-SSH administration
-
-80
-
-TCP
-
-Public internet
-
-Frontend EC2
-
-Domain HTTP access
-
-443
-
-TCP
-
-Public internet
-
-Frontend EC2
-
-HTTPS when configured
-
-8080
-
-TCP
-
-Your permitted client IP
-
-Frontend EC2
-
-Direct IP access
-
-5000
-
-TCP
-
-Frontend security group
-
-Backend EC2
-
-Node.js API
-
-3306
-
-TCP
-
-Backend security group
-
-Database EC2
-
-MySQL connection
-
-Do not expose ports 5000 or 3306 to the public internet.
-
-3. Project folder structure
-
-After extracting the ZIP file, the project should look like this:
-
+# Expense Tracker – AWS Three-Tier Deployment
+
+A beginner-friendly, end-to-end guide for deploying an Expense Tracker application on **three Ubuntu EC2 instances** using Nginx, Node.js/Express, and MySQL.
+
+Follow the steps in order. Each command is labelled with the server on which it must run. Complete the verification step in each section before moving to the next one.
+
+> **Deployment model:** Frontend EC2 → Backend EC2 → Database EC2  
+> **Domain setup:** Domain registered with Hostinger and DNS hosted in Amazon Route 53.
+
+---
+
+## Table of contents
+
+1. [Project overview](#1-project-overview)
+2. [Architecture and request flow](#2-architecture-and-request-flow)
+3. [Technology stack and project structure](#3-technology-stack-and-project-structure)
+4. [Prerequisites and deployment values](#4-prerequisites-and-deployment-values)
+5. [Create the AWS security groups](#5-create-the-aws-security-groups)
+6. [Launch the EC2 instances](#6-launch-the-ec2-instances)
+7. [Connect to the EC2 instances](#7-connect-to-the-ec2-instances)
+8. [Configure the MySQL database server](#8-configure-the-mysql-database-server)
+9. [Configure and deploy the Node.js backend](#9-configure-and-deploy-the-nodejs-backend)
+10. [Configure and deploy the frontend with Nginx](#10-configure-and-deploy-the-frontend-with-nginx)
+11. [Purchase the domain and configure DNS with Hostinger and Route 53](#11-purchase-the-domain-and-configure-dns-with-hostinger-and-route-53)
+    - [Purchase/register the domain in Hostinger](#111-purchaseregister-the-domain-in-hostinger)
+    - [Understand the DNS request flow](#112-understand-the-dns-request-flow)
+    - [Create a public hosted zone in Route 53](#113-create-a-route-53-public-hosted-zone)
+    - [Copy Route 53 nameservers and update Hostinger](#114-copy-route-53-nameservers-and-update-hostinger)
+    - [Create the root-domain A record pointing to Frontend EC2](#115-create-the-root-domain-a-record-pointing-to-frontend-ec2)
+    - [Create the www CNAME record](#116-create-the-www-cname-record)
+    - [Verify DNS records and propagation](#117-verify-dns-records-and-propagation)
+    - [Test the domain and API](#118-test-the-domain-and-api)
+12. [Start and enable the services](#12-start-and-enable-the-services)
+13. [Test the complete application](#13-test-the-complete-application)
+14. [Verify the database records](#14-verify-the-database-records)
+15. [Application and server logs](#15-application-and-server-logs)
+16. [Reboot and automatic-startup verification](#16-reboot-and-automatic-startup-verification)
+17. [Security recommendations](#17-security-recommendations)
+18. [Troubleshooting](#18-troubleshooting)
+19. [Final deployment checklist](#19-final-deployment-checklist)
+20. [Useful commands reference](#20-useful-commands-reference)
+21. [Project scope and limitations](#21-project-scope-and-limitations)
+
+---
+
+## 1. Project overview
+
+This project deploys an Expense Tracker application on three Ubuntu EC2 instances in AWS.
+
+| Tier | EC2 instance | Technology | Responsibility |
+|---|---|---|---|
+| Presentation | Frontend EC2 | HTML, CSS, JavaScript, Nginx | Displays the application in the browser |
+| Application | Backend EC2 | Node.js, Express.js | Handles API requests and application logic |
+| Data | Database EC2 | MySQL | Stores expense records |
+
+### Application capabilities
+
+- Create a new expense.
+- Retrieve and display saved expenses.
+- Update an existing expense.
+- Delete an expense.
+- Store expense information in MySQL.
+- Serve static frontend files through Nginx.
+- Forward API requests to the backend through an Nginx reverse proxy.
+- Run the backend as a Linux `systemd` service.
+- Start Nginx, the backend and MySQL automatically after an EC2 reboot.
+- Record backend application logs and Nginx access/error logs.
+- Access the application through the frontend EC2 public IP or a custom domain.
+
+### Expense data model
+
+| Field | Description |
+|---|---|
+| `id` | Automatically generated expense ID |
+| `title` | Expense title |
+| `amount` | Expense amount |
+| `category` | Expense category |
+| `expense_date` | Date of the expense |
+| `description` | Optional description |
+| `created_at` | Record creation timestamp |
+
+### CRUD API operations
+
+CRUD means **Create, Read, Update and Delete**.
+
+| Operation | HTTP method | Endpoint | Purpose |
+|---|---|---|---|
+| Create | `POST` | `/api/expenses` | Add an expense |
+| Read | `GET` | `/api/expenses` | Retrieve expenses |
+| Update | `PUT` | `/api/expenses/:id` | Update an expense |
+| Delete | `DELETE` | `/api/expenses/:id` | Delete an expense |
+
+---
+
+## 2. Architecture and request flow
+
+The application uses a three-tier architecture. The frontend, backend and database run on separate EC2 instances in the same VPC.
+
+### 2.1 Architecture diagram
+
+```text
+                         USER'S BROWSER
+                               |
+                 +-------------+-------------+
+                 |                           |
+            Domain access               Direct IP access
+          http://devcloud.store       http://PUBLIC-IP:8080
+                 |                           |
+                 v                           v
+          AMAZON ROUTE 53              FRONTEND EC2
+          DNS resolution                NGINX :8080
+                 |                           |
+                 v                           |
+            FRONTEND EC2 <-------------------+
+              NGINX :80
+                 |
+          Serves HTML, CSS
+           and JavaScript
+                 |
+          Browser calls API
+            /api/expenses
+                 |
+                 v
+          NGINX REVERSE PROXY
+                 |
+          Private VPC network
+          Backend private IP:5000
+                 |
+                 v
+             BACKEND EC2
+          Node.js + Express
+                 |
+          Processes CRUD API
+                 |
+          Private VPC network
+          Database private IP:3306
+                 |
+                 v
+            DATABASE EC2
+                MySQL
+                 |
+           expense_tracker
+                 |
+            expenses table
+```
+
+### 2.2 Request flow
+
+1. A user opens the application using the domain or frontend EC2 public IP.
+2. For domain access, Route 53 resolves the domain to the frontend public IP.
+3. Nginx receives the HTTP request.
+4. Nginx serves the frontend HTML, CSS and JavaScript files.
+5. The browser sends API requests to the relative path `/api/expenses`.
+6. Nginx forwards API requests to the backend private IP on port `5000`.
+7. Express.js processes the request.
+8. The backend communicates with MySQL on port `3306`.
+9. MySQL performs the requested database operation.
+10. The response returns through the backend and Nginx to the browser.
+
+**Important:** The browser does not connect directly to the backend private IP or database. The browser calls the frontend's `/api/expenses` path. Nginx forwards that request to the backend over the VPC private network.
+
+### 2.3 Application URLs
+
+| Access method | URL | Purpose |
+|---|---|---|
+| Root domain | `http://devcloud.store` | Main application URL |
+| WWW domain | `http://www.devcloud.store` | Alternative domain URL |
+| Direct public IP | `http://FRONTEND_PUBLIC_IP:8080` | Direct frontend access |
+| Backend API | `http://BACKEND_PRIVATE_IP:5000/api/expenses` | Private backend endpoint |
+
+The domain uses HTTP port `80`. The direct IP test uses port `8080`.
+
+### 2.4 Network ports
+
+| Port | Protocol | Source | Destination | Purpose |
+|---:|---|---|---|---|
+| 22 | TCP | Your public IP `/32` or approved admin path | EC2 instances | SSH administration |
+| 80 | TCP | Public internet | Frontend EC2 | HTTP domain access |
+| 443 | TCP | Public internet | Frontend EC2 | HTTPS, when configured |
+| 8080 | TCP | Your permitted client IP | Frontend EC2 | Direct IP testing |
+| 5000 | TCP | Frontend security group | Backend EC2 | Node.js API |
+| 3306 | TCP | Backend security group | Database EC2 | MySQL |
+
+> Never expose backend port `5000` or database port `3306` to the public internet.
+
+---
+
+## 3. Technology stack and project structure
+
+### 3.1 Technology stack
+
+- **AWS EC2:** Compute for the three application tiers.
+- **Ubuntu Server:** Operating system on the EC2 instances.
+- **Nginx:** Static web server and reverse proxy.
+- **HTML, CSS and JavaScript:** Frontend.
+- **Node.js and Express.js:** Backend API.
+- **MySQL:** Relational database.
+- **systemd:** Backend process management and automatic startup.
+- **Amazon Route 53:** DNS hosting.
+- **Hostinger:** Domain registrar for `devcloud.store`.
+
+### 3.2 Repository structure
+
+The repository is expected to follow this structure:
+
+```text
 expense-tracker-aws-three-tier/
 ├── README.md
 ├── README-DEPLOYMENT.md
@@ -416,455 +238,293 @@ expense-tracker-aws-three-tier/
     │   └── expense-frontend.service
     └── scripts/
         └── create-backend-user-and-directories.sh
+```
 
-What each important file does
+### 3.3 Important files
 
-File
+| File | Responsibility |
+|---|---|
+| `frontend/index.html` | Page structure and expense form |
+| `frontend/style.css` | Application design and layout |
+| `frontend/script.js` | Calls the backend API and updates the page |
+| `backend/server.js` | Starts Express and registers middleware/routes |
+| `backend/config/db.js` | Creates the MySQL connection |
+| `backend/controllers/expenseController.js` | Implements expense CRUD operations |
+| `backend/routes/expenseRoutes.js` | Maps API paths to controller functions |
+| `backend/.env.example` | Template for backend environment variables |
+| `database/schema.sql` | Creates the expenses table |
+| `deploy/nginx/expense-tracker.conf` | Nginx configuration template |
+| `deploy/systemd/expense-tracker.service` | Runs the backend through systemd |
+| `deploy/systemd/expense-frontend.service` | Optional frontend marker service for this lab |
 
-Purpose
+The live Nginx configuration may use separate files for ports `80` and `8080`. Keep repository configuration templates consistent with the actual server configuration.
 
-frontend/index.html
+---
 
-Page structure and expense form
+## 4. Prerequisites and deployment values
 
-frontend/style.css
-
-Application design and layout
-
-frontend/script.js
-
-Calls the backend API and updates the page
-
-backend/server.js
-
-Starts Express and registers middleware/routes
-
-backend/config/db.js
-
-Creates the MySQL connection
-
-backend/controllers/expenseController.js
-
-Implements expense CRUD operations
-
-backend/routes/expenseRoutes.js
-
-Maps API paths to controller functions
-
-backend/.env.example
-
-Template for backend environment variables
-
-database/schema.sql
-
-Creates the expenses table
-
-deploy/nginx/expense-tracker.conf
-
-Nginx configuration template
-
-deploy/systemd/expense-tracker.service
-
-Runs the backend through systemd
-
-deploy/systemd/expense-frontend.service
-
-Optional frontend marker service used in this lab
-
-The live EC2 Nginx configuration may contain separate files for port 80 and port 8080. The deployment configuration in the repository should be kept consistent with the actual server configuration.
-
-4. Prerequisites
+### 4.1 Prerequisites
 
 Before starting, make sure you have:
 
-An AWS account with permission to create VPC resources, security groups, Route 53 hosted zones, key pairs and EC2 instances.
+- An AWS account with permission to create VPC resources, security groups, key pairs, EC2 instances and Route 53 hosted zones.
+- A Hostinger account with the domain `devcloud.store`.
+- An SSH client. Windows 10/11 usually includes OpenSSH in PowerShell.
+- The project repository or ZIP file available on your computer.
+- An EC2 key pair and its `.pem` private key.
+- Your current public IPv4 address, to restrict SSH access.
+- Three Ubuntu EC2 instances in the same VPC, with private network connectivity.
+- A Route 53 public hosted zone for `devcloud.store`.
 
-A Hostinger account with the registered domain devcloud.store.
+### 4.2 Security note
 
-An SSH client. Windows 10/11 includes OpenSSH in PowerShell on most installations.
+Never share or commit any of the following:
 
-The project ZIP extracted on your computer.
+- `.pem` private keys.
+- Database passwords.
+- AWS access keys or secret keys.
+- Your real backend `.env` file.
+- Any other production credentials.
 
-A key pair (.pem) for connecting to the Ubuntu instances.
+Use `.gitignore` to exclude secret files from Git.
 
-Your current public IPv4 address, to restrict SSH and administrative access.
+### 4.3 Record your AWS environment
 
-Three Ubuntu EC2 instances in the same VPC and in network locations that can communicate privately.
+Fill in this table after creating the infrastructure.
 
-A Route 53 public hosted zone for devcloud.store.
+| Value | Your environment |
+|---|---|
+| AWS Region | `YOUR_AWS_REGION` |
+| VPC ID | `YOUR_VPC_ID` |
+| Frontend public IPv4 | `FRONTEND_PUBLIC_IP` |
+| Frontend private IPv4 | `FRONTEND_PRIVATE_IP` |
+| Backend private IPv4 | `BACKEND_PRIVATE_IP` |
+| Database private IPv4 | `DATABASE_PRIVATE_IP` |
+| Domain | `devcloud.store` |
+| WWW domain | `www.devcloud.store` |
+| Your public IPv4 CIDR | `YOUR_PUBLIC_IP/32` |
 
-Important security note
+The original lab recorded these example private addresses:
 
-Never share your .pem private key, database password, AWS secret keys or the contents of your real .env file. Do not upload them to GitHub.
+| Server | Example private IP |
+|---|---|
+| Frontend | `172.31.32.210` |
+| Backend | `172.31.47.69` |
+| Database | `172.31.35.119` |
 
-5. Plan the AWS environment
+These are **reference values only**. Use the actual private IP addresses displayed in your EC2 console. They may change if you recreate the instances.
 
-Use one VPC for all three instances. They need private network connectivity.
+The original lab also recorded `54.152.118.78` as the frontend public IP. Do not assume it is still assigned to your instance. Check the EC2 console before using it.
 
-5.1 Record your instance information
+### 4.4 Plan the EC2 configuration
 
-Fill in this table after launching the instances:
-
-Value
-
-Your environment
-
-AWS Region
-
-YOUR_AWS_REGION
-
-VPC ID
-
-YOUR_VPC_ID
-
-Frontend public IPv4
-
-54.152.118.78 (current recorded value)
-
-Frontend private IPv4
-
-FRONTEND_PRIVATE_IP
-
-Backend private IPv4
-
-BACKEND_PRIVATE_IP
-
-Database private IPv4
-
-DATABASE_PRIVATE_IP
-
-Domain
-
-devcloud.store
-
-WWW domain
-
-www.devcloud.store
-
-Your public IPv4 CIDR
-
-YOUR_PUBLIC_IP/32
-
-The working lab previously used these private addresses:
-
-Server
-
-Lab private IP
-
-Frontend
-
-172.31.32.210
-
-Backend
-
-172.31.47.69
-
-Database
-
-172.31.35.119
-
-These are reference values only. Use the actual private addresses shown in your EC2 console. Private IPs can differ when instances are recreated.
-
-5.2 Recommended instance configuration
-
-For a learning lab, a small Ubuntu instance is usually sufficient. Select an instance type appropriate to your account, region, budget and workload. Check current AWS pricing before launching.
+For a learning lab, a small Ubuntu instance may be sufficient. Choose an instance type and EBS size appropriate to your workload, region and budget. Check current AWS pricing before launching.
 
 For all three instances:
 
-AMI: Ubuntu Server LTS.
+- AMI: Ubuntu Server LTS.
+- Architecture: Prefer the same architecture across the instances.
+- Key pair: Select your SSH key pair.
+- VPC: Select the same VPC for all three instances.
+- Storage: Configure an appropriate EBS volume.
+- Network access: The frontend needs a public endpoint for browser access. The backend and database do not need public inbound application ports.
 
-Architecture: Keep the same architecture across instances where possible.
+For a hardened design, prefer private instances with administration through Systems Manager Session Manager, a VPN or a controlled bastion host rather than public SSH.
 
-Key pair: Select your SSH key pair.
+---
 
-VPC: Select the same VPC.
-
-Storage: Use an appropriate EBS volume for the OS and application.
-
-Public IP: A public IP is needed only if you intend to SSH directly over the internet. A private/bastion/VPN/Systems Manager access design is preferable for a hardened environment.
-
-For this lab, the frontend needs a reachable public endpoint for browser access. The backend and database do not need public inbound application ports.
-
-5.3 Domain and IP planning
-
-The domain is registered with Hostinger, while Route 53 provides DNS hosting.
-
-The intended DNS arrangement is:
-
-devcloud.store
-      |
-      v
-Amazon Route 53
-      |
-      v
-Frontend EC2 Public IP
-      |
-      v
-Nginx
-
-For a stable production-like setup, associate an Elastic IP with the frontend EC2 instance and point Route 53 to that address. If the EC2 public IP changes, update the DNS A record accordingly.
-
-6. Create the security groups
+## 5. Create the AWS security groups
 
 Create three security groups in the same VPC.
 
-6.1 Frontend security group
+### 5.1 Frontend security group
 
-Example name: frontend_security_group
+Example name: `frontend_security_group`
 
-Inbound rules:
+Configure these inbound rules:
 
-Type
+| Type | Protocol | Port | Source |
+|---|---|---:|---|
+| SSH | TCP | 22 | `YOUR_PUBLIC_IP/32` |
+| HTTP | TCP | 80 | `0.0.0.0/0` |
+| Custom TCP | TCP | 8080 | `YOUR_PUBLIC_IP/32` |
+| HTTPS | TCP | 443 | `0.0.0.0/0` when HTTPS is configured |
 
-Protocol
+Port `80` allows users to access the domain. Port `8080` is for direct IP testing.
 
-Port
+If IPv6 is enabled and the application should be reachable over IPv6, configure the corresponding IPv6 rules as well.
 
-Source
+### 5.2 Backend security group
 
-SSH
+Example name: `expense-backend-sg`
 
-TCP
+| Type | Protocol | Port | Source |
+|---|---|---:|---|
+| SSH | TCP | 22 | Your public IP `/32` or approved administration method |
+| Custom TCP | TCP | 5000 | Frontend security group |
 
-22
+For port `5000`, select the **frontend security group** as the source. Do not use `0.0.0.0/0`.
 
-YOUR_PUBLIC_IP/32
+### 5.3 Database security group
 
-HTTP
+Example name: `expense-database-sg`
 
-TCP
+| Type | Protocol | Port | Source |
+|---|---|---:|---|
+| SSH | TCP | 22 | Your public IP `/32` or approved administration method |
+| MySQL/Aurora | TCP | 3306 | Backend security group |
 
-80
+For port `3306`, select the **backend security group** as the source.
 
-0.0.0.0/0
+### 5.4 Verify the security group rules
 
-Custom TCP
+Before launching or configuring the instances, verify:
 
-TCP
+- Frontend port `80` is reachable publicly for domain HTTP access.
+- Frontend port `8080` is reachable only from your permitted client IP.
+- Frontend port `443` is allowed when HTTPS is configured.
+- Backend port `5000` accepts traffic only from the frontend security group.
+- Database port `3306` accepts traffic only from the backend security group.
+- SSH port `22` is restricted to your public IP `/32` or an approved private access method.
+- No unnecessary public MySQL, backend or all-traffic rules exist.
 
-8080
+Security groups are stateful. Return traffic for permitted connections is automatically allowed.
 
-YOUR_PUBLIC_IP/32
+---
 
-HTTPS
+## 6. Launch the EC2 instances
 
-TCP
+Launch these three Ubuntu instances:
 
-443
-
-0.0.0.0/0 when HTTPS is configured
-
-If IPv6 is enabled and your application is intended to be reachable over IPv6, add the corresponding IPv6 rules as well.
-
-Port 80 allows users to access http://devcloud.store. Port 8080 is used for direct IP testing.
-
-6.2 Backend security group
-
-Example name: expense-backend-sg
-
-Inbound rules:
-
-Type
-
-Protocol
-
-Port
-
-Source
-
-SSH
-
-TCP
-
-22
-
-YOUR_PUBLIC_IP/32 or approved administration method
-
-Custom TCP
-
-TCP
-
-5000
-
-Frontend security group
-
-For port 5000, select the frontend security group as the source, not 0.0.0.0/0.
-
-6.3 Database security group
-
-Example name: expense-database-sg
-
-Inbound rules:
-
-Type
-
-Protocol
-
-Port
-
-Source
-
-SSH
-
-TCP
-
-22
-
-YOUR_PUBLIC_IP/32 or approved administration method
-
-MySQL/Aurora
-
-TCP
-
-3306
-
-Backend security group
-
-For port 3306, select the backend security group as the source.
-
-6.4 Review the rules
-
-Before continuing, verify:
-
-Frontend port 80 is reachable publicly for domain access.
-
-Frontend port 8080 is reachable from your intended client IP.
-
-Frontend port 443 is allowed when HTTPS is configured.
-
-Backend port 5000 accepts traffic only from the frontend security group.
-
-Database port 3306 accepts traffic only from the backend security group.
-
-SSH port 22 is restricted to your own public IP /32 or an approved private access method.
-
-No broad All traffic or public MySQL rules have been added unnecessarily.
-
-Security groups are stateful, so response traffic for permitted connections is automatically allowed.
-
-7. Launch the three EC2 instances
-
-Launch three Ubuntu EC2 instances:
-
-Expense-Frontend
-
-Expense-Backend
-
-Expense-Database
+1. `Expense-Frontend`
+2. `Expense-Backend`
+3. `Expense-Database`
 
 For each instance:
 
-Open the EC2 console.
+1. Open the AWS EC2 console.
+2. Select **Launch instance**.
+3. Enter the instance name.
+4. Select an Ubuntu Server LTS AMI.
+5. Choose an instance type.
+6. Select your key pair.
+7. Select the intended VPC and subnet.
+8. Attach the correct security group.
+9. Configure EBS storage.
+10. Launch the instance.
 
-Choose Launch instance.
+### 6.1 Attach the correct security groups
 
-Enter the instance name.
+| EC2 instance | Security group |
+|---|---|
+| `Expense-Frontend` | Frontend security group |
+| `Expense-Backend` | Backend security group |
+| `Expense-Database` | Database security group |
 
-Select an Ubuntu Server AMI.
+After launch, record each instance's private IPv4 address. Also record the frontend public IPv4 address if one is assigned.
 
-Choose an instance type suitable for your lab.
+**Verification:** Do not continue until all three instances are running and their private IP addresses are recorded.
 
-Select your key pair.
+---
 
-Select the correct VPC and subnet.
+## 7. Connect to the EC2 instances
 
-Attach the matching security group.
+The following examples use Windows PowerShell. Replace the key path and IP placeholders with your own values.
 
-Configure storage.
+### 7.1 Connect to Frontend EC2
 
-Launch the instance.
-
-Attach the correct security groups
-
-Instance
-
-Security group
-
-Expense-Frontend
-
-Frontend security group
-
-Expense-Backend
-
-Backend security group
-
-Expense-Database
-
-Database security group
-
-After launch, open each instance's details and record its private IPv4 address. Also record the frontend public IPv4 address if one is assigned.
-
-Do not continue until all three instances are running and you have recorded their private IP addresses.
-
-8. Connect to the instances
-
-The commands below are examples for Windows PowerShell. Replace the key path and public IP values.
-
+```powershell
 ssh -i "C:\path\to\your-key.pem" ubuntu@FRONTEND_PUBLIC_IP
+```
 
-For backend and database servers, use their reachable public IPs if configured, or connect through your approved private access method, such as a bastion host, VPN or AWS Systems Manager Session Manager.
+### 7.2 Connect to Backend and Database EC2
 
-Example SSH commands when those servers have reachable public IPs:
+If these instances have reachable public IPs, connect using:
 
+```powershell
 ssh -i "C:\path\to\your-key.pem" ubuntu@BACKEND_PUBLIC_IP
 ssh -i "C:\path\to\your-key.pem" ubuntu@DATABASE_PUBLIC_IP
+```
 
-On Linux/macOS, restrict the key permissions if required:
+For private-only instances, connect through your approved method, such as a bastion host, VPN or AWS Systems Manager Session Manager.
 
+On Linux/macOS, restrict the private key permissions if required:
+
+```bash
 chmod 400 /path/to/your-key.pem
+```
 
-After connecting, confirm the machine:
+### 7.3 Verify the connected server
 
+Run this after connecting to each instance:
+
+```bash
 hostname
 hostname -I
+```
 
-Use the correct server for every section below. Do not accidentally run database commands on the frontend server.
+Make sure you are on the correct server before running the commands in the following sections. Do not run database commands on the frontend instance.
 
-9. Configure the database server
+---
 
-Run every command in this section on: Database EC2.
+## 8. Configure the MySQL database server
 
-9.1 Update Ubuntu and install MySQL
+> **Run every command in this section on: Database EC2.**
 
+### 8.1 Update Ubuntu and install MySQL
+
+```bash
 sudo apt update
 sudo apt upgrade -y
 sudo apt install -y mysql-server
+```
 
 Enable and start MySQL:
 
+```bash
 sudo systemctl enable --now mysql
 sudo systemctl status mysql
+```
 
-The status should show active (running).
+Expected status: `active (running)`.
 
-9.2 Configure MySQL network listening
+### 8.2 Configure MySQL network listening
 
 Open the MySQL server configuration:
 
+```bash
 sudo nano /etc/mysql/mysql.conf.d/mysqld.cnf
+```
 
-Find the bind-address setting. Configure it to listen on the database instance's private IP address:
+Find `bind-address` and set it to the database instance's private IP:
 
+```ini
 bind-address = DATABASE_PRIVATE_IP
+```
 
-Replace DATABASE_PRIVATE_IP with the actual private IP of this database EC2. If the configuration already has a suitable private bind address, do not add a duplicate setting.
+Replace `DATABASE_PRIVATE_IP` with the actual private IP of Database EC2. If a suitable private bind address is already configured, do not add a duplicate setting.
 
-Save the file and restart MySQL:
+Restart MySQL and verify the listener:
 
+```bash
 sudo systemctl restart mysql
 sudo systemctl status mysql
 sudo ss -lntp | grep 3306
+```
 
-The listener should be on the database private address and port 3306. Avoid binding to all interfaces unless you have a specific reason and have verified network controls.
+The listener should use the database private address and port `3306`. Avoid binding to all interfaces unless you have a specific reason and have verified the network controls.
 
-9.3 Create the database and application user
+### 8.3 Create the database and application user
 
 Open the local MySQL shell:
 
+```bash
 sudo mysql
+```
 
-Run the following SQL. Replace BACKEND_PRIVATE_IP with the actual private IP of Backend EC2. Replace the sample password with a strong unique password of your own.
+Run the following SQL. Replace `BACKEND_PRIVATE_IP` with the actual private IP of Backend EC2. Replace the sample password with a strong, unique password.
 
+```sql
 CREATE DATABASE expense_tracker;
 
 CREATE USER 'expense_user'@'BACKEND_PRIVATE_IP'
@@ -875,16 +535,18 @@ ON expense_tracker.*
 TO 'expense_user'@'BACKEND_PRIVATE_IP';
 
 FLUSH PRIVILEGES;
+```
 
+The `BACKEND_PRIVATE_IP` text is a placeholder; do not run it literally. For example, if the backend private IP is `172.31.47.69`, the account host should be `'172.31.47.69'`.
+
+The MySQL account is restricted to connections from the backend IP. The database security group separately restricts network access to the backend security group.
+
+### 8.4 Create the expenses table
+
+You can execute the SQL in `database/schema.sql`, or run:
+
+```sql
 USE expense_tracker;
-
-Important: The string BACKEND_PRIVATE_IP is a placeholder. Do not run it literally. For example, if the backend private IP is 172.31.47.69, the MySQL account host should be '172.31.47.69'.
-
-The SQL account is restricted to connections from that backend IP. The database security group separately restricts network access to the backend security group.
-
-9.4 Create the expenses table
-
-You can run the SQL from database/schema.sql, or execute:
 
 CREATE TABLE expenses (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -895,162 +557,215 @@ CREATE TABLE expenses (
     description TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+```
 
-Verify:
+Verify the database and table:
 
+```sql
 SHOW DATABASES;
 USE expense_tracker;
 SHOW TABLES;
 DESCRIBE expenses;
 EXIT;
+```
 
-Expected table name:
+Expected table name: `expenses`.
 
-expenses
+### 8.5 Verify MySQL automatic startup
 
-9.5 Confirm MySQL is enabled at boot
-
+```bash
 sudo systemctl is-enabled mysql
+```
 
 Expected result:
 
+```text
 enabled
+```
 
-10. Configure the backend server
+**Verification before moving on:** MySQL must be active, enabled, listening on the database private IP at port `3306`, and the `expense_tracker.expenses` table must exist.
 
-Run every command in this section on: Backend EC2.
+---
 
-10.1 Update Ubuntu and install Node.js tools and MySQL client
+## 9. Configure and deploy the Node.js backend
 
+> **Run every command in this section on: Backend EC2.**
+
+### 9.1 Update Ubuntu and install Node.js tools and MySQL client
+
+```bash
 sudo apt update
 sudo apt upgrade -y
 sudo apt install -y nodejs npm mysql-client
+```
 
 Check the installed versions:
 
+```bash
 node --version
 npm --version
 mysql --version
+```
 
-If mysql-client is not available for your Ubuntu release, install the MySQL client package offered by that release (for example, mysql-client-core or the distribution's equivalent).
+If `mysql-client` is not available for your Ubuntu release, install the MySQL client package provided by that release, such as `mysql-client-core` or its distribution equivalent.
 
-10.2 Test the private connection to MySQL
+### 9.2 Test the private connection to MySQL
 
+```bash
 mysql -h DATABASE_PRIVATE_IP -u expense_user -p expense_tracker
+```
 
-Replace DATABASE_PRIVATE_IP with the actual database private IP. Enter the database password when prompted; it will not be displayed as you type.
+Replace `DATABASE_PRIVATE_IP` with the actual database private IP. Enter the database password when prompted.
 
-At the MySQL prompt, run:
+At the MySQL prompt:
 
+```sql
 SHOW TABLES;
 SELECT * FROM expenses;
 EXIT;
+```
 
-If this connection fails, stop and troubleshoot the database bind address, MySQL user host, database security group and private IP before configuring the Node.js service.
+If the connection fails, stop here. Check the MySQL bind address, MySQL user host, database security group and private IP before configuring the Node.js service.
 
-10.3 Create the application directory
+### 9.3 Create the backend application directory
 
 The application will be installed at:
 
+```text
 /opt/expense-tracker
+```
 
-Create it:
+Create the directory:
 
+```bash
 sudo mkdir -p /opt/expense-tracker
+```
 
-Copy the contents of the repository's backend/ directory into /opt/expense-tracker. The resulting layout must be:
+Copy the contents of the repository's `backend/` directory into `/opt/expense-tracker`.
 
+The resulting layout must be:
+
+```text
 /opt/expense-tracker/
 ├── server.js
 ├── package.json
-├── config/db.js
-├── controllers/expenseController.js
-└── routes/expenseRoutes.js
+├── config/
+│   └── db.js
+├── controllers/
+│   └── expenseController.js
+└── routes/
+    └── expenseRoutes.js
+```
 
-You can transfer the files using scp, a private Git repository, SFTP or another secure method. Do not copy your real .env file into a public repository.
+Transfer files using SCP, a private Git repository, SFTP or another secure method. Do not copy your real `.env` file into a public repository.
 
-10.4 Create the backend environment file
+### 9.4 Create the backend environment file
 
+```bash
 sudo nano /opt/expense-tracker/.env
+```
 
 Add the following values and replace the database IP and password:
 
+```dotenv
 PORT=5000
 DB_HOST=DATABASE_PRIVATE_IP
 DB_USER=expense_user
 DB_PASSWORD=YOUR_DATABASE_PASSWORD
 DB_NAME=expense_tracker
 DB_PORT=3306
+```
 
-Save the file.
+Protect the file:
 
-Protect it:
-
+```bash
 sudo chmod 600 /opt/expense-tracker/.env
+```
 
 The file will later be owned by the restricted application user. Do not print its contents in terminal screenshots or share it.
 
-10.5 Install Node.js dependencies
+### 9.5 Install Node.js dependencies
 
+```bash
 cd /opt/expense-tracker
 sudo npm install --omit=dev
+```
 
-Confirm that the project files and node_modules exist:
+Verify the application files and dependencies:
 
+```bash
 ls -la
+```
 
-10.6 Optional manual backend test
+### 9.6 Optional manual backend test
 
-For a quick manual test before configuring systemd:
+Before creating the systemd service, you can test the backend manually:
 
+```bash
 cd /opt/expense-tracker
 sudo node server.js
+```
 
-If the configuration is correct, the app should report that the server is listening on port 5000 and that MySQL connected successfully.
+If the configuration is correct, the application should report that the server is listening on port `5000` and that MySQL connected successfully.
 
 Open another terminal session to Backend EC2 and test:
 
+```bash
 curl -i http://localhost:5000/
 curl -i http://localhost:5000/api/expenses
+```
 
-Stop the manually started process with Ctrl+C before continuing. The systemd service will manage the process later.
+Stop the manually started process with `Ctrl+C` before continuing. The systemd service will manage the process later.
 
-10.7 Create a restricted Linux service user
+### 9.7 Create a restricted Linux service user
 
 The backend should not run as root.
 
+```bash
 sudo useradd --system --user-group \
   --home-dir /opt/expense-tracker \
   --no-create-home \
   --shell /usr/sbin/nologin expenseapp
+```
 
-If the user already exists, do not create it again. Check with:
+If the user already exists, do not create it again. Check it with:
 
+```bash
 id expenseapp
+```
 
 Set ownership and permissions:
 
+```bash
 sudo chown -R expenseapp:expenseapp /opt/expense-tracker
 sudo chmod 750 /opt/expense-tracker
 sudo chmod 600 /opt/expense-tracker/.env
+```
 
-10.8 Create backend log files
+### 9.8 Create backend log files
 
+```bash
 sudo mkdir -p /var/log/expense-tracker
+
 sudo touch /var/log/expense-tracker/expense-tracker.log
 sudo touch /var/log/expense-tracker/expense-tracker-error.log
+
 sudo chown -R expenseapp:expenseapp /var/log/expense-tracker
 sudo chmod 750 /var/log/expense-tracker
 sudo chmod 640 /var/log/expense-tracker/*.log
+```
 
-10.9 Configure the backend systemd service
+### 9.9 Configure the backend systemd service
 
 Create the service file:
 
+```bash
 sudo nano /etc/systemd/system/expense-tracker.service
+```
 
-Paste:
+Add:
 
+```ini
 [Unit]
 Description=Expense Tracker Node.js Backend
 After=network.target
@@ -1069,140 +784,144 @@ StandardError=append:/var/log/expense-tracker/expense-tracker-error.log
 
 [Install]
 WantedBy=multi-user.target
+```
 
-Check the Node.js path:
+Check the Node.js binary path:
 
+```bash
 which node
+```
 
-If it returns a path other than /usr/bin/node, update ExecStart to match the returned path.
+If the returned path is not `/usr/bin/node`, update `ExecStart` to use the path returned by `which node`.
 
-Reload systemd and start the service:
+Reload systemd and enable/start the backend:
 
+```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now expense-tracker
+```
 
-Check status:
+Check the service:
 
+```bash
 sudo systemctl status expense-tracker
+```
 
 Expected status:
 
+```text
 Active: active (running)
+```
 
-Check the listening port:
+Verify that the backend is listening on port `5000`:
 
+```bash
 sudo ss -lntp | grep 5000
+```
 
-The backend should listen on port 5000. It should be reachable from the frontend through private networking, not directly from the public internet.
+The backend should be reachable from the frontend over private networking, not directly from the public internet.
 
-10.10 Backend CRUD API endpoints
+### 9.10 Backend CRUD endpoints
 
-The backend exposes the following API endpoints:
+| HTTP method | Endpoint | Operation |
+|---|---|---|
+| `GET` | `/api/expenses` | Retrieve all expenses |
+| `POST` | `/api/expenses` | Create an expense |
+| `PUT` | `/api/expenses/:id` | Update an expense |
+| `DELETE` | `/api/expenses/:id` | Delete an expense |
 
-HTTP method
+The route file maps these endpoints to the appropriate controller functions. For example:
 
-Endpoint
-
-Operation
-
-GET
-
-/api/expenses
-
-Retrieve all expenses
-
-POST
-
-/api/expenses
-
-Create an expense
-
-PUT
-
-/api/expenses/:id
-
-Update an expense
-
-DELETE
-
-/api/expenses/:id
-
-Delete an expense
-
-The route file maps these endpoints to the appropriate controller functions.
-
-Example route structure:
-
+```javascript
 router.get('/', getExpenses);
 router.post('/', createExpense);
 router.put('/:id', updateExpense);
 router.delete('/:id', deleteExpense);
+```
 
-The controller handles the corresponding database operations.
+The controller handles the corresponding database operations. The exact request body and validation rules depend on the application implementation. Use the field names expected by your controller and frontend.
 
-Note: The exact request body and validation rules depend on the application's implementation. Use the field names expected by your controller and frontend.
+**Verification before moving on:** The backend service must be active, port `5000` must be listening, and the backend must be able to connect to MySQL.
 
-11. Configure the frontend server
+---
 
-Run every command in this section on: Frontend EC2.
+## 10. Configure and deploy the frontend with Nginx
 
-11.1 Update Ubuntu and install Nginx
+> **Run every command in this section on: Frontend EC2.**
 
+### 10.1 Update Ubuntu and install Nginx
+
+```bash
 sudo apt update
 sudo apt upgrade -y
 sudo apt install -y nginx
+```
 
 Enable and start Nginx:
 
+```bash
 sudo systemctl enable --now nginx
 sudo systemctl status nginx
+```
 
-Expected status:
+Expected status: `active (running)`.
 
-Active: active (running)
-
-11.2 Create the frontend application user
+### 10.2 Create the frontend application user
 
 Nginx serves static files. Create a dedicated owner for the project files:
 
+```bash
 sudo useradd --system --user-group \
   --home-dir /opt/expense-frontend \
   --no-create-home \
   --shell /usr/sbin/nologin frontendapp
+```
 
-If the user already exists, verify it with:
+If the user already exists, verify it:
 
+```bash
 id frontendapp
+```
 
-11.3 Create the frontend directory
+### 10.3 Create the frontend directory and deploy files
 
+```bash
 sudo mkdir -p /opt/expense-frontend
+```
 
-Copy the contents of the repository's frontend/ directory into /opt/expense-frontend.
+Copy the contents of the repository's `frontend/` directory into `/opt/expense-frontend`.
 
 The final layout must be:
 
+```text
 /opt/expense-frontend/
 ├── index.html
 ├── style.css
 └── script.js
+```
 
 Set ownership and permissions:
 
+```bash
 sudo chown -R frontendapp:frontendapp /opt/expense-frontend
+
 sudo find /opt/expense-frontend -type d -exec chmod 755 {} \;
 sudo find /opt/expense-frontend -type f -exec chmod 644 {} \;
+```
 
 Nginx must be able to read the files and traverse the directories.
 
-11.4 Configure Nginx for direct IP access on port 8080
+### 10.4 Configure Nginx for direct IP access on port 8080
 
 Create the Nginx configuration:
 
+```bash
 sudo nano /etc/nginx/conf.d/expense-tracker.conf
+```
 
-Paste the following configuration. Replace BACKEND_PRIVATE_IP with the actual private IP of Backend EC2.
+Add the following configuration. Replace `BACKEND_PRIVATE_IP` with the actual private IP of Backend EC2.
 
+```nginx
 server {
     listen 8080;
     server_name _;
@@ -1224,48 +943,62 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
+```
 
-Important: Replace the placeholder in proxy_pass. Do not leave BACKEND_PRIVATE_IP in the live Nginx configuration.
+Do not leave `BACKEND_PRIVATE_IP` as a literal placeholder in the live Nginx configuration.
 
 Test the configuration:
 
+```bash
 sudo nginx -t
+```
 
-Only continue if the output reports that the syntax is OK and the test is successful.
+Continue only if Nginx reports that the syntax is OK and the test is successful.
 
 Reload Nginx:
 
+```bash
 sudo systemctl reload nginx
 sudo systemctl status nginx
+```
 
 Test the local frontend:
 
+```bash
 curl -I http://localhost:8080/
+```
 
-A successful response should show an HTTP 200 status.
+A successful response should show HTTP `200`.
 
-11.5 Understand the Nginx reverse proxy
+### 10.5 Understand the Nginx reverse proxy
 
 The frontend JavaScript uses a relative API path:
 
+```text
 /api/expenses
+```
 
 Nginx receives this request and forwards it to:
 
+```text
 http://BACKEND_PRIVATE_IP:5000/api/expenses
+```
 
-This keeps the backend private IP out of the browser code and avoids exposing port 5000 to users' browsers.
+This keeps the backend private IP out of the browser code and avoids exposing port `5000` to users' browsers.
 
-11.6 Nginx configuration for the custom domain on port 80
+### 10.6 Configure Nginx for the custom domain on port 80
 
-The custom domain uses a separate Nginx server configuration.
+The custom domain uses an additional Nginx server configuration.
 
-Create the additional configuration file:
+Create the file:
 
+```bash
 sudo nano /etc/nginx/conf.d/expense-tracker-port80.conf
+```
 
-Use the following structure, replacing BACKEND_PRIVATE_IP with the actual backend private IP:
+Add the following, replacing `BACKEND_PRIVATE_IP` with the actual backend private IP:
 
+```nginx
 server {
     listen 80;
     server_name devcloud.store www.devcloud.store;
@@ -1287,575 +1020,451 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
     }
 }
+```
 
-Important Nginx notes:
+Important notes:
 
-This configuration listens on port 80 for devcloud.store and www.devcloud.store.
-
-It serves the same frontend directory: /opt/expense-frontend.
-
-It forwards API requests to the backend private IP on port 5000.
-
-The existing port 8080 configuration remains available for direct IP access.
-
-Do not add default_server to this server block if another active configuration already declares itself as the default server on port 80.
-
-Do not delete or modify the existing /etc/nginx/sites-enabled/default file without first checking how Nginx currently uses it.
+- This configuration listens on port `80` for `devcloud.store` and `www.devcloud.store`.
+- It serves the same frontend directory: `/opt/expense-frontend`.
+- It forwards API requests to the backend private IP on port `5000`.
+- The existing port `8080` configuration remains available for direct IP access.
+- Do not add `default_server` if another active configuration already declares itself as the default server on port `80`.
+- Do not delete or modify `/etc/nginx/sites-enabled/default` without first checking how Nginx currently uses it.
 
 Validate all active Nginx configurations:
 
+```bash
 sudo nginx -t
+```
 
 Inspect the complete configuration:
 
+```bash
 sudo nginx -T
+```
 
-Check which files and server blocks listen on ports 80 and 8080:
+Inspect server blocks and proxy settings:
 
+```bash
 sudo nginx -T | grep -n -B 10 -A 20 -E 'listen 8080|listen 80|server_name|proxy_pass'
+```
 
 Reload Nginx:
 
+```bash
 sudo systemctl reload nginx
+```
 
 Test both local listeners:
 
+```bash
 curl -I http://localhost:8080/
 curl -I http://localhost/
+```
 
 Both should serve the frontend successfully.
 
-11.7 Confirm that both Nginx configurations use the same frontend directory
+### 10.7 Confirm both Nginx configurations use the same frontend directory
 
-Both configurations should use:
+Both server blocks should contain:
 
+```nginx
 root /opt/expense-frontend;
+```
 
-This ensures that the direct IP URL and domain URL serve the same frontend files.
+This ensures that direct IP access and domain access serve the same frontend files. If one URL displays a different design, inspect the active Nginx server blocks and document roots.
 
-If one URL displays a different design, inspect the active Nginx server blocks and document roots.
+**Verification before moving on:** `nginx -t` must pass, Nginx must be active, and both ports `80` and `8080` must serve the expected frontend.
 
-12. Configure the custom domain using Route 53
+---
+
+## 11. Purchase the domain and configure DNS with Hostinger and Route 53
+
+This section starts with domain registration, then delegates DNS authority to Route 53, creates the DNS records, and finally connects the domain to the public IP address of the Frontend EC2 instance.
+
+### 11.1 Purchase/register the domain in Hostinger
+
+1. Sign in to your Hostinger account.
+2. Open the domain search/registration page.
+3. Search for the domain name you want to use, such as `devcloud.store`.
+4. Check availability and complete the domain registration/purchase.
+5. Confirm that the domain appears in your Hostinger domain management dashboard.
+
+> If you already own the domain, do not purchase it again. Continue with the Route 53 hosted-zone setup.
 
 This project uses:
 
-Hostinger: Domain registrar where devcloud.store was purchased.
+- **Hostinger:** Domain registrar where `devcloud.store` was purchased.
+- **Amazon Route 53:** DNS hosting service.
+- **Frontend EC2:** Destination for domain traffic.
+- **Nginx:** Web server that receives domain requests.
 
-Amazon Route 53: DNS hosting service.
+### 11.2 Understand the DNS request flow
 
-Frontend EC2: Destination for domain traffic.
+```text
+           USER'S BROWSER
+                 |
+           devcloud.store
+                 |
+                 v
+       HOSTINGER DOMAIN REGISTRATION
+                 |
+        Nameservers delegated to
+             Route 53
+                 |
+                 v
+          AMAZON ROUTE 53
+           PUBLIC HOSTED ZONE
+                 |
+             A record
+                 |
+                 v
+            FRONTEND EC2
+              PUBLIC IP
+                 |
+               NGINX
+              PORT 80
+                 |
+          +------+------+
+          |             |
+     Frontend files   /api/ requests
+                          |
+                          v
+                      Backend EC2
+```
 
-Nginx: Web server that receives the domain requests.
+### 11.3 Create a Route 53 public hosted zone
 
-12.1 Understand the domain and DNS flow
+1. Sign in to the AWS Management Console.
+2. Open **Route 53**.
+3. Select **Hosted zones**.
+4. Choose **Create hosted zone**.
+5. Enter `devcloud.store`.
+6. Select **Public hosted zone**.
+7. Create the hosted zone.
 
-             USER'S BROWSER
-                    |
-                    |
-              devcloud.store
-                    |
-                    v
-             HOSTINGER DOMAIN
-               REGISTRATION
-                    |
-                    |
-             Nameservers point
-              to Route 53
-                    |
-                    v
-             AMAZON ROUTE 53
-               PUBLIC HOSTED
-                   ZONE
-                    |
-                    |
-              A record lookup
-                    |
-                    v
-             FRONTEND EC2
-               PUBLIC IP
-                    |
-                    v
-                 NGINX
-                 PORT 80
-                    |
-          ---------------------
-          |                   |
-      Frontend files      /api/ requests
-                              |
-                              v
-                         Backend EC2
+Route 53 automatically creates an NS record and an SOA record. The NS record contains four Route 53 nameservers. These nameservers must be configured at the domain registrar.
 
-12.2 Create a public hosted zone in Route 53
+### 11.4 Copy Route 53 nameservers and update Hostinger
 
-Sign in to the AWS Management Console.
+Route 53 becomes authoritative for the domain only after the registrar delegates the domain to the Route 53 nameservers.
 
-Open Route 53.
-
-Select Hosted zones.
-
-Choose Create hosted zone.
-
-Enter the domain:
-
-devcloud.store
-
-Select Public hosted zone.
-
-Create the hosted zone.
-
-Route 53 automatically creates:
-
-NS record
-
-SOA record
-
-The NS record contains four Route 53 nameservers. These nameservers must be configured at the domain registrar.
-
-12.3 Configure the nameservers in Hostinger
-
-Since the domain was purchased through Hostinger, Route 53 will only become authoritative for the domain after the nameservers are changed at Hostinger.
-
-Steps:
-
-Log in to Hostinger.
-
-Open the domain management section.
-
-Select devcloud.store.
-
-Find the nameserver settings.
-
-Select the option to use custom nameservers.
-
-Copy all four NS values from the Route 53 hosted zone.
-
-Enter those four nameservers in Hostinger.
-
-Save the changes.
+1. Log in to Hostinger.
+2. Open the domain management section.
+3. Select `devcloud.store`.
+4. Find the nameserver settings.
+5. Select the option to use custom nameservers.
+6. Copy all four NS values from the Route 53 hosted zone.
+7. Enter those four nameservers in Hostinger.
+8. Save the changes.
 
 Example format only:
 
+```text
 ns-XXXX.awsdns-XX.com
 ns-XXXX.awsdns-XX.net
 ns-XXXX.awsdns-XX.org
 ns-XXXX.awsdns-XX.co.uk
+```
 
 Use the exact four nameservers generated by your own Route 53 hosted zone. Do not use the example values above.
 
 Wait for the nameserver change to propagate.
 
-Important: Creating DNS records in Route 53 is not sufficient by itself. The domain registrar must delegate the domain to the Route 53 nameservers.
+> Creating DNS records in Route 53 is not sufficient by itself. The domain registrar must delegate the domain to the Route 53 nameservers.
 
-12.4 Create the root-domain A record
+### 11.5 Create the root-domain A record pointing to Frontend EC2
 
-Inside the devcloud.store hosted zone:
+Inside the `devcloud.store` hosted zone:
 
-Choose Create record.
+1. Choose **Create record**.
+2. Leave the record name blank for the root domain.
+3. Select record type `A`.
+4. Enter the frontend EC2 public IPv4 address.
+5. Select Simple routing.
+6. Save the record.
 
-Leave the record name blank for the root domain.
+Example configuration:
 
-Select record type A.
+| Field | Value |
+|---|---|
+| Domain | `devcloud.store` |
+| Record type | `A` |
+| Destination | `FRONTEND_PUBLIC_IP` |
+| Routing policy | Simple |
 
-Enter the frontend EC2 public IPv4 address.
+The original lab recorded `54.152.118.78`; verify the current EC2 public IP before using it.
 
-Select Simple routing.
+**Important:** The A record must point to the **public IPv4 address of the Frontend EC2 instance running Nginx**. Do not point it to the Backend EC2 or Database EC2. User browser traffic reaches Nginx on the frontend server first; Nginx then serves the website and proxies `/api/` requests to the backend over the private network.
 
-Save the record.
+For a stable setup, associate an Elastic IP with Frontend EC2 and use that address in the A record. If the public IP changes, update the DNS record.
 
-The current recorded configuration is:
-
-Field
-
-Value
-
-Domain
-
-devcloud.store
-
-Record type
-
-A
-
-Destination
-
-54.152.118.78
-
-Routing policy
-
-Simple
-
-If an Elastic IP is associated with Frontend EC2, use that Elastic IP instead.
-
-12.5 Create the www CNAME record
+### 11.6 Create the www CNAME record
 
 Create another record in the same hosted zone:
 
-Field
+| Field | Value |
+|---|---|
+| Record name | `www` |
+| Record type | `CNAME` |
+| Destination | `devcloud.store` |
+| Routing policy | Simple |
 
-Value
+This makes both hostnames available:
 
-Record name
+- `devcloud.store`
+- `www.devcloud.store`
 
-www
+### 11.7 Understand the DNS record types
 
-Record type
-
-CNAME
-
-Destination
-
-devcloud.store
-
-Routing policy
-
-Simple
-
-This makes both names available:
-
-devcloud.store
-www.devcloud.store
-
-The current DNS record arrangement is:
-
-devcloud.store
-      |
-      | A record
-      v
-54.152.118.78
-
-www.devcloud.store
-      |
-      | CNAME
-      v
-devcloud.store
-
-12.6 Understand DNS record types
-
-Record type
-
-Purpose
-
-A
-
-Maps a domain name to an IPv4 address
-
-AAAA
-
-Maps a domain name to an IPv6 address
-
-CNAME
-
-Maps one domain name to another domain name
-
-NS
-
-Identifies the authoritative nameservers
-
-SOA
-
-Contains DNS zone authority information
+| Record type | Purpose |
+|---|---|
+| A | Maps a domain name to an IPv4 address |
+| AAAA | Maps a domain name to an IPv6 address |
+| CNAME | Maps one domain name to another domain name |
+| NS | Identifies the authoritative nameservers |
+| SOA | Contains DNS zone authority information |
 
 For this project:
 
-The A record points the root domain to the frontend public IPv4 address.
+- The A record points the root domain to the frontend public IPv4 address.
+- The `www` CNAME points to `devcloud.store`.
+- NS and SOA records are created automatically by Route 53.
 
-The CNAME record points www.devcloud.store to devcloud.store.
+### 11.8 Verify DNS records and propagation
 
-NS and SOA records are created automatically by Route 53.
+From your local computer:
 
-12.7 Verify DNS resolution
-
-From your local computer, run:
-
+```bash
 nslookup devcloud.store
 nslookup www.devcloud.store
+```
 
-You can also run:
+You can also use:
 
+```bash
 dig devcloud.store
 dig www.devcloud.store
+dig NS devcloud.store
+```
 
-The root domain should resolve to the frontend public IPv4 address.
+The root domain should resolve to the frontend public IPv4 address. The `www` hostname should resolve through the CNAME.
 
-The www hostname should resolve through the CNAME.
+Confirm that the authoritative nameservers match the four NS records in your Route 53 hosted zone. DNS changes can take time to propagate because of resolver caching and TTL.
 
-To inspect the authoritative nameservers:
+### 11.9 Test the domain and API
 
-nslookup -type=NS devcloud.store
+Open these URLs in a browser:
 
-Confirm that the nameservers match the four NS records shown in your Route 53 hosted zone.
+- `http://devcloud.store`
+- `http://www.devcloud.store`
 
-DNS changes can take time to propagate depending on resolver caching and TTL.
-
-12.8 Test the custom domain
-
-Open the following URLs in your browser:
-
-http://devcloud.store
-http://www.devcloud.store
-
-Verify that:
-
-The Expense Tracker frontend loads.
-
-CSS files load correctly.
-
-JavaScript files load correctly.
-
-The expenses API responds.
-
-Adding an expense works.
-
-Updating an expense works.
-
-Deleting an expense works.
+Verify that the frontend, CSS and JavaScript load and that the API responds.
 
 Test the API through the domain:
 
+```bash
 curl -i http://devcloud.store/api/expenses
+```
 
-12.9 DNS does not configure Nginx
+### 11.10 Understand which component does what
 
-It is important to understand the difference:
-
-Component
-
-Responsibility
-
-Hostinger
-
-Domain registration and registrar-level nameserver settings
-
-Route 53
-
-Resolves the domain name to the frontend IP
-
-EC2 Elastic IP
-
-Provides a stable public IPv4 address
-
-Security group
-
-Allows or blocks network traffic
-
-Nginx
-
-Receives HTTP requests and serves frontend files
-
-Nginx reverse proxy
-
-Forwards /api/ requests to the backend
-
-Backend
-
-Processes application requests
-
-MySQL
-
-Stores expense records
+| Component | Responsibility |
+|---|---|
+| Hostinger | Domain registration and registrar-level nameserver settings |
+| Route 53 | Resolves the domain name to the frontend IP |
+| EC2 Elastic IP | Provides a stable public IPv4 address |
+| Security group | Allows or blocks network traffic |
+| Nginx | Receives HTTP requests and serves frontend files |
+| Nginx reverse proxy | Forwards `/api/` requests to the backend |
+| Backend | Processes application requests |
+| MySQL | Stores expense records |
 
 DNS only resolves the domain name. Nginx must separately be configured to handle requests for that domain.
 
-12.10 Configure HTTPS
+### 11.10 HTTPS configuration
 
-The current domain setup uses HTTP:
+The domain setup described above uses HTTP:
 
+```text
 http://devcloud.store
+```
 
-HTTP does not encrypt traffic.
-
-For production-facing access, configure HTTPS using a trusted TLS certificate. One option is Let's Encrypt with Certbot on Ubuntu and Nginx.
+HTTP does not encrypt traffic. For production-facing access, configure HTTPS using a trusted TLS certificate. One option is Let's Encrypt with Certbot on Ubuntu and Nginx.
 
 Before requesting a certificate:
 
-Confirm devcloud.store resolves to the frontend public IP.
+- Confirm `devcloud.store` resolves to the frontend public IP.
+- Confirm `www.devcloud.store` resolves correctly.
+- Allow inbound TCP ports `80` and `443` in the frontend security group.
+- Confirm Nginx serves the domain successfully over HTTP.
 
-Confirm www.devcloud.store resolves correctly.
+After configuring the certificate:
 
-Allow inbound TCP ports 80 and 443 in the frontend security group.
+- Test `https://devcloud.store`.
+- Test `https://www.devcloud.store`.
+- Configure HTTP-to-HTTPS redirection.
+- Configure and verify automatic certificate renewal.
 
-Confirm that Nginx serves the domain successfully over HTTP.
+**Do not document HTTPS as active unless a TLS certificate has actually been installed and tested.**
 
-After configuring the certificate, test:
+---
 
-https://devcloud.store
-https://www.devcloud.store
+## 12. Start and enable the services
 
-Configure HTTP-to-HTTPS redirection and automatic certificate renewal.
+### 12.1 Backend EC2
 
-Current deployment note: Unless a TLS certificate has actually been installed and tested, document the domain as HTTP rather than claiming HTTPS is active.
-
-13. Deploy the application files
-
-There are multiple ways to copy files to EC2. Use one method consistently.
-
-Option A — Copy files using SCP from your computer
-
-From Windows PowerShell, you can use scp if OpenSSH is installed. Example:
-
-scp -i "C:\path\to\your-key.pem" -r ".\expense-tracker-aws-three-tier\backend\*" ubuntu@BACKEND_PUBLIC_IP:/home/ubuntu/expense-backend/
-
-And for the frontend:
-
-scp -i "C:\path\to\your-key.pem" -r ".\expense-tracker-aws-three-tier\frontend\*" ubuntu@FRONTEND_PUBLIC_IP:/home/ubuntu/expense-frontend/
-
-Create the destination directories on the relevant EC2 instance before copying:
-
-mkdir -p /home/ubuntu/expense-backend
-
-or:
-
-mkdir -p /home/ubuntu/expense-frontend
-
-Then copy the files into their final /opt directories:
-
-On Backend EC2:
-
-sudo mkdir -p /opt/expense-tracker
-sudo cp -r /home/ubuntu/expense-backend/. /opt/expense-tracker/
-
-On Frontend EC2:
-
-sudo mkdir -p /opt/expense-frontend
-sudo cp -r /home/ubuntu/expense-frontend/. /opt/expense-frontend/
-
-Apply the ownership and permissions described in the backend and frontend sections after copying.
-
-SCP examples assume the instances have reachable SSH endpoints. If backend/database instances are private-only, transfer files through a bastion, VPN, Systems Manager or another approved private method. Do not open SSH to the world just to copy files.
-
-Option B — Use Git
-
-If the project is in a private Git repository, install Git and clone it using an approved authentication method. Do not embed access tokens in shell history or public URLs.
-
-14. Start and enable the services
-
-14.1 Backend EC2
-
+```bash
 sudo systemctl daemon-reload
 sudo systemctl enable expense-tracker
 sudo systemctl restart expense-tracker
 sudo systemctl status expense-tracker
+```
 
-Check logs:
+Check backend logs:
 
+```bash
 sudo tail -n 50 /var/log/expense-tracker/expense-tracker.log
 sudo tail -n 50 /var/log/expense-tracker/expense-tracker-error.log
+```
 
-14.2 Frontend EC2 — Nginx
+### 12.2 Frontend EC2 – Nginx
 
-Nginx is the actual web server:
+Nginx is the actual frontend web server:
 
+```bash
 sudo systemctl enable nginx
 sudo systemctl restart nginx
 sudo systemctl status nginx
+```
 
-14.3 Optional frontend marker service
+### 12.3 Optional frontend marker service
 
-The lab also includes expense-frontend.service. It is a oneshot marker service that runs /usr/bin/true and exits. It is not a web server and does not handle browser requests.
+The lab also includes `expense-frontend.service`. It is a **oneshot marker service** that runs `/usr/bin/true` and exits. It is not a web server and does not handle browser requests.
 
-If you want to reproduce the lab exactly, copy deploy/systemd/expense-frontend.service to /etc/systemd/system/expense-frontend.service, then run:
+If you want to reproduce the lab exactly, copy `deploy/systemd/expense-frontend.service` to `/etc/systemd/system/expense-frontend.service`, then run:
 
+```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now expense-frontend
 sudo systemctl status expense-frontend
+```
 
 It may report:
 
+```text
 Active: active (exited)
+```
 
-That is expected for this oneshot unit. Nginx must still be active and enabled. The marker service is optional; a simpler setup can omit it.
+That is expected for this oneshot unit. Nginx must still be active and enabled. The marker service is optional and can be omitted.
 
-15. Test the complete application
+### 12.4 Database EC2
 
-Perform these tests in order.
+```bash
+sudo systemctl enable mysql
+sudo systemctl status mysql
+```
 
-15.1 Test the backend locally
+---
 
-On Backend EC2:
+## 13. Test the complete application
 
+Perform these tests in order. Testing each layer separately makes it easier to identify where a failure occurs.
+
+### 13.1 Test the backend locally
+
+> Run on Backend EC2.
+
+```bash
 curl -i http://localhost:5000/
 curl -i http://localhost:5000/api/expenses
+```
 
 The root endpoint should return the backend health response. The API endpoint should return JSON.
 
-15.2 Test backend connectivity from the frontend
+### 13.2 Test backend connectivity from the frontend
 
-On Frontend EC2:
+> Run on Frontend EC2.
 
+```bash
 curl -i http://BACKEND_PRIVATE_IP:5000/
 curl -i http://BACKEND_PRIVATE_IP:5000/api/expenses
+```
 
-Replace BACKEND_PRIVATE_IP with the actual private IP.
+Replace `BACKEND_PRIVATE_IP` with the actual private IP.
 
 If these requests fail, check the backend service, backend security group source, backend listener and VPC connectivity.
 
-15.3 Test Nginx locally on port 8080
+### 13.3 Test Nginx locally on port 8080
 
-On Frontend EC2:
+> Run on Frontend EC2.
 
+```bash
 curl -i http://localhost:8080/
 curl -i http://localhost:8080/api/expenses
+```
 
-The first request should return the frontend HTML. The second should return the expenses JSON from the backend through the Nginx reverse proxy.
+The first request should return frontend HTML. The second should return expenses JSON from the backend through the Nginx reverse proxy.
 
-15.4 Test Nginx locally on port 80
+### 13.4 Test Nginx locally on port 80
 
-On Frontend EC2:
+> Run on Frontend EC2.
 
+```bash
 curl -i -H "Host: devcloud.store" http://localhost/
 curl -i -H "Host: devcloud.store" http://localhost/api/expenses
+```
 
 The first request should return the domain-specific frontend HTML. The second should return the API response.
 
-15.5 Test direct IP access in your browser
-
-On your own computer, open:
-
-http://54.152.118.78:8080
-
-Or replace the address with the current frontend public IPv4 address.
-
-You should see the Expense Tracker page.
-
-15.6 Test domain access in your browser
+### 13.5 Test direct IP access in your browser
 
 Open:
 
+```text
+http://FRONTEND_PUBLIC_IP:8080
+```
+
+Replace the placeholder with the current frontend public IPv4 address. You should see the Expense Tracker page.
+
+### 13.6 Test domain access in your browser
+
+Open:
+
+```text
 http://devcloud.store
 http://www.devcloud.store
+```
 
 You should see the same Expense Tracker application.
 
-15.7 Test retrieving expenses
+### 13.7 Test retrieving expenses – GET
 
-Open the application and confirm that the existing expenses appear in the expense history.
+Open the application and confirm that existing expenses appear in the expense history.
 
 You can also test:
 
+```bash
 curl -i http://devcloud.store/api/expenses
+```
 
 Expected result: an HTTP success response containing JSON.
 
-15.8 Test adding an expense — POST
+### 13.8 Test adding an expense – POST
 
 Use the application form:
 
-Enter an expense title.
+1. Enter an expense title.
+2. Enter an amount.
+3. Select or enter a category, depending on the UI.
+4. Select the expense date.
+5. Enter a description if available.
+6. Submit the form.
+7. Confirm that the new expense appears in the expense history.
 
-Enter an amount.
+Sample API request, if the backend accepts these field names:
 
-Select or enter a category, depending on the UI.
-
-Select the expense date.
-
-Enter a description if available.
-
-Submit the form.
-
-Confirm that the new expense appears in the expense history.
-
-A sample API request, if the backend accepts these field names:
-
+```bash
 curl -i -X POST http://devcloud.store/api/expenses \
   -H "Content-Type: application/json" \
   -d '{
@@ -1865,13 +1474,13 @@ curl -i -X POST http://devcloud.store/api/expenses \
     "expense_date": "2026-11-23",
     "description": "Monthly internet bill"
   }'
+```
 
-15.9 Test updating an expense — PUT
+### 13.9 Test updating an expense – PUT
 
-First identify an existing expense ID.
+First identify an existing expense ID. For example, if the ID is `1`:
 
-For example, if the expense ID is 1, send an update request:
-
+```bash
 curl -i -X PUT http://devcloud.store/api/expenses/1 \
   -H "Content-Type: application/json" \
   -d '{
@@ -1881,669 +1490,664 @@ curl -i -X PUT http://devcloud.store/api/expenses/1 \
     "expense_date": "2026-11-23",
     "description": "Updated monthly internet bill"
   }'
+```
 
 Verify that the expense is updated in the application and database.
 
 The example payload must match the fields and validation rules implemented in your backend.
 
-15.10 Test deleting an expense — DELETE
+### 13.10 Test deleting an expense – DELETE
 
-Identify an expense ID that you intend to delete.
+Identify an expense ID that you intend to delete. For example:
 
-For example:
-
+```bash
 curl -i -X DELETE http://devcloud.store/api/expenses/1
+```
 
 Verify that:
 
-The API returns the expected success response.
+- The API returns the expected success response.
+- The deleted expense no longer appears in the application.
+- The corresponding database record has been removed.
 
-The deleted expense no longer appears in the application.
+Use a test record rather than deleting an important expense.
 
-The corresponding database record has been removed.
+### 13.11 Compare direct IP and domain API access
 
-Use an appropriate test record rather than deleting an important expense.
-
-15.11 Test direct IP API access
-
-curl -i http://54.152.118.78:8080/api/expenses
-
-This should return the same API data as the domain endpoint:
-
+```bash
+curl -i http://FRONTEND_PUBLIC_IP:8080/api/expenses
 curl -i http://devcloud.store/api/expenses
+```
 
 Both Nginx server blocks should forward requests to the same backend.
 
-16. Verify the database records
+---
 
-Run on Database EC2:
+## 14. Verify the database records
 
+> **Run on Database EC2.**
+
+Open MySQL:
+
+```bash
 sudo mysql
+```
 
-Then:
+Run:
 
+```sql
 USE expense_tracker;
 SHOW TABLES;
 DESCRIBE expenses;
 SELECT * FROM expenses ORDER BY id DESC;
 EXIT;
+```
 
-The expense submitted from the browser should appear in the expenses table.
+The expense submitted from the browser should appear in the `expenses` table.
 
-For testing CRUD operations:
+Expected CRUD behaviour:
 
-POST should insert a record.
+- `POST` inserts a record.
+- `GET` retrieves records.
+- `PUT` updates the selected record.
+- `DELETE` removes the selected record.
 
-GET should retrieve records.
+This confirms the end-to-end request flow:
 
-PUT should update the selected record.
+```text
+Browser → Nginx → Node.js API → MySQL
+```
 
-DELETE should remove the selected record.
+---
 
-This confirms the end-to-end flow:
-
-Browser -> Nginx -> Node.js API -> MySQL
-
-17. Application and server logs
+## 15. Application and server logs
 
 Logs help identify whether a problem is in Nginx, the Node.js application or MySQL.
 
-17.1 Backend application log
+### 15.1 Backend application log
 
-On Backend EC2:
+> Run on Backend EC2.
 
+```bash
 sudo tail -f /var/log/expense-tracker/expense-tracker.log
+```
 
 The backend request-logging middleware records completed requests with:
 
-Timestamp
-
-HTTP method
-
-Request path
-
-HTTP response status
-
-Request duration in milliseconds
+- Timestamp.
+- HTTP method.
+- Request path.
+- HTTP response status.
+- Request duration in milliseconds.
 
 Example format:
 
+```text
 2026-11-22T15:45:00.000Z | GET /api/expenses | 200 | 12ms
+```
 
-You should see GET, POST, PUT and DELETE requests when those operations are performed.
+You should see `GET`, `POST`, `PUT` and `DELETE` requests when those operations are performed.
 
-Press Ctrl+C to stop following the log.
+Press `Ctrl+C` to stop following the log.
 
-17.2 Backend error log
+### 15.2 Backend error log
 
-On Backend EC2:
+> Run on Backend EC2.
 
+```bash
 sudo tail -f /var/log/expense-tracker/expense-tracker-error.log
+```
 
-This file receives the backend process's standard error output. Also check the systemd journal:
+Also check the systemd journal:
 
+```bash
 sudo journalctl -u expense-tracker -n 100 --no-pager
 sudo journalctl -u expense-tracker -f
+```
 
-17.3 Nginx access log
+### 15.3 Nginx access log
 
-On Frontend EC2:
+> Run on Frontend EC2.
 
+```bash
 sudo tail -f /var/log/nginx/access.log
+```
 
-This records incoming HTTP requests handled by Nginx, including requests arriving through port 80 and port 8080.
+This records incoming HTTP requests handled by Nginx, including requests arriving through ports `80` and `8080`.
 
-17.4 Nginx error log
+### 15.4 Nginx error log
 
-On Frontend EC2:
+> Run on Frontend EC2.
 
+```bash
 sudo tail -f /var/log/nginx/error.log
+```
 
-Use this when Nginx cannot read a file, cannot connect to the backend or encounters a configuration/runtime issue.
+Use this when Nginx cannot read a file, connect to the backend or process a configuration/runtime request.
 
-17.5 MySQL service status
+### 15.5 MySQL service status and logs
 
-On Database EC2:
+> Run on Database EC2.
 
+```bash
 sudo systemctl status mysql
 sudo journalctl -u mysql -n 50 --no-pager
+```
 
-17.6 Optional frontend marker logs
+### 15.6 Optional frontend marker service logs
 
-If you installed the optional expense-frontend.service:
+If you installed the optional `expense-frontend.service`, its logs may be available at:
 
+```bash
 sudo cat /var/log/expense-frontend/frontend.log
 sudo cat /var/log/expense-frontend/frontend-error.log
+```
 
-These files capture output from the marker command, not Nginx HTTP requests. They may be empty. Use /var/log/nginx/access.log and /var/log/nginx/error.log for actual Nginx request/error logs.
+These files capture output from the marker command, not Nginx HTTP requests. They may be empty. Use `/var/log/nginx/access.log` and `/var/log/nginx/error.log` for actual Nginx request/error logs.
 
-17.7 Log rotation
+### 15.7 Log rotation
 
-For a longer-running environment, configure log rotation and retention for application logs. Do not allow log files to grow indefinitely. Nginx commonly has logrotate configuration supplied by the OS; verify that it is enabled on your Ubuntu release.
+For a longer-running environment, configure log rotation and retention for application logs. Do not allow log files to grow indefinitely. Ubuntu commonly supplies logrotate configuration for Nginx; verify that it is enabled on your release.
 
-18. Reboot and automatic-startup verification
+---
 
-The services should start after the EC2 instances reboot.
+## 16. Reboot and automatic-startup verification
 
-18.1 Check enabled status before reboot
+The services should start automatically after their EC2 instances reboot.
 
-Backend EC2:
+### 16.1 Check enabled status before reboot
 
+**Backend EC2:**
+
+```bash
 sudo systemctl is-enabled expense-tracker
 sudo systemctl status expense-tracker
+```
 
-Frontend EC2:
+**Frontend EC2:**
 
+```bash
 sudo systemctl is-enabled nginx
 sudo systemctl status nginx
+```
 
-If installed:
+If the optional marker service is installed:
 
+```bash
 sudo systemctl is-enabled expense-frontend
 sudo systemctl status expense-frontend
+```
 
-Database EC2:
+**Database EC2:**
 
+```bash
 sudo systemctl is-enabled mysql
 sudo systemctl status mysql
+```
 
-18.2 Reboot one server at a time
+### 16.2 Reboot one server at a time
 
 Do not reboot all three instances simultaneously during your first verification.
 
-On the server you are testing:
+On the server being tested:
 
+```bash
 sudo reboot
+```
 
 Wait until the EC2 instance is running and SSH is available again. Reconnect and check the relevant service:
 
-Database EC2: sudo systemctl status mysql
+| Server | Service to verify |
+|---|---|
+| Database EC2 | `sudo systemctl status mysql` |
+| Backend EC2 | `sudo systemctl status expense-tracker` |
+| Frontend EC2 | `sudo systemctl status nginx` |
 
-Backend EC2: sudo systemctl status expense-tracker
-
-Frontend EC2: sudo systemctl status nginx
-
-Then repeat the browser and API tests.
-
-Also verify that the domain still resolves to the correct frontend public IP.
+After each reboot, repeat the relevant browser and API tests. Also verify that the domain still resolves to the correct frontend public IP.
 
 If you use an Elastic IP, it remains associated with the instance across ordinary stop/start operations unless you disassociate or release it.
 
-19. Security recommendations
+---
 
-This is a learning deployment. Before exposing it as a real production application, improve its security.
+## 17. Security recommendations
 
-Restrict SSH: Allow TCP 22 only from your trusted IP or use Systems Manager Session Manager.
+This is a learning deployment. Improve its security before exposing it as a real production application.
 
-Keep backend private: Do not expose TCP 5000 to the internet.
+- **Restrict SSH:** Allow TCP `22` only from your trusted IP or use Systems Manager Session Manager.
+- **Keep the backend private:** Do not expose TCP `5000` to the internet.
+- **Keep the database private:** Do not expose TCP `3306` to the internet.
+- **Use security-group references:** Frontend SG → Backend SG → Database SG.
+- **Protect secrets:** Keep `.env` out of Git and restrict its file permissions.
+- **Use least privilege:** The MySQL application account should not be a MySQL administrator.
+- **Use HTTPS:** Install and configure a valid TLS certificate for the custom domain.
+- **Patch systems:** Apply security updates regularly.
+- **Back up MySQL:** Set up and test database backups.
+- **Monitor logs:** Configure log rotation, monitoring and alerts.
+- **Avoid public SSH for private servers:** Prefer SSM, VPN or a controlled bastion host.
+- **Review IAM:** Grant only the AWS permissions required for deployment and operation.
+- **Use an Elastic IP:** Avoid DNS becoming stale when the EC2 public IPv4 address changes.
+- **Validate API input:** Validate expense IDs, amounts, dates and required fields in the backend.
+- **Protect API operations:** Add authentication and authorization before using the application for real user data.
+- **Use parameterized SQL:** Avoid constructing SQL queries by concatenating untrusted input.
 
-Keep database private: Do not expose TCP 3306 to the internet.
+---
 
-Use security-group references: Frontend SG -> Backend SG -> Database SG.
+## 18. Troubleshooting
 
-Protect secrets: Keep .env out of Git and restrict its file permissions.
+Troubleshoot from the failing layer outward. Run the checks on the server indicated.
 
-Use least privilege: The MySQL application account should not be a MySQL administrator.
+### 18.1 Frontend website does not open
 
-Use HTTPS: Install and configure a valid TLS certificate for the custom domain.
+> Frontend EC2:
 
-Patch systems: Apply security updates regularly.
-
-Back up MySQL: Set up and test database backups.
-
-Monitor logs: Configure log rotation, monitoring and alerts.
-
-Avoid public SSH for private servers: Prefer SSM, VPN or a controlled bastion host.
-
-Review IAM: Grant only the AWS permissions required for deployment and operation.
-
-Use an Elastic IP: Avoid DNS becoming stale when an EC2 public IPv4 address changes.
-
-Validate API input: Validate expense IDs, amounts, dates and required fields in the backend.
-
-Protect API operations: Add authentication and authorization before using the application for real user data.
-
-Use parameterized SQL: Avoid constructing SQL queries by concatenating untrusted input.
-
-20. Troubleshooting guide
-
-Problem 1 — Frontend website does not open
-
-On Frontend EC2:
-
+```bash
 sudo systemctl status nginx
 sudo nginx -t
 sudo ss -lntp | grep -E ':80|:8080'
 curl -I http://localhost:8080/
 curl -I http://localhost/
+```
 
 Check:
 
-Nginx is active.
+- Nginx is active.
+- Nginx configuration test passes.
+- Nginx listens on ports `80` and `8080` as intended.
+- Frontend security group allows TCP `80` for domain access.
+- Frontend security group allows TCP `8080` from your permitted client IP.
+- Frontend public IP is correct.
+- Frontend files exist in `/opt/expense-frontend`.
 
-Nginx configuration test passes.
+### 18.2 Nginx returns 403 Forbidden
 
-Nginx listens on ports 80 and 8080 as intended.
+> Frontend EC2:
 
-Frontend security group allows TCP 80 for public domain access.
-
-Frontend security group allows TCP 8080 from your permitted client IP.
-
-The frontend public IP is correct.
-
-The frontend files exist in /opt/expense-frontend.
-
-Problem 2 — Nginx returns 403 Forbidden
-
-Check file and directory permissions:
-
+```bash
 namei -l /opt/expense-frontend/index.html
 sudo find /opt/expense-frontend -maxdepth 2 -ls
+```
 
-Nginx must be able to traverse parent directories and read index.html, style.css and script.js.
+Nginx must be able to traverse parent directories and read `index.html`, `style.css` and `script.js`.
 
-Problem 3 — Frontend opens, but expenses do not load
+### 18.3 Frontend opens, but expenses do not load
 
-On Frontend EC2:
+> Frontend EC2:
 
+```bash
 curl -i http://BACKEND_PRIVATE_IP:5000/api/expenses
 curl -i http://localhost:8080/api/expenses
 curl -i http://localhost/api/expenses
+```
 
 Check:
 
-Backend service is running.
+- Backend service is running.
+- Nginx `proxy_pass` contains the correct backend private IP.
+- Backend security group allows TCP `5000` from the frontend security group.
+- Backend listens on port `5000`.
+- Backend can connect to MySQL.
+- Both Nginx server blocks contain the correct `/api/` proxy configuration.
 
-Nginx proxy_pass contains the correct backend private IP.
+### 18.4 Backend service fails to start
 
-Backend security group allows TCP 5000 from the frontend security group.
+> Backend EC2:
 
-Backend listens on port 5000.
-
-The backend can connect to MySQL.
-
-Both Nginx server blocks contain the correct /api/ proxy configuration.
-
-Problem 4 — Backend service fails to start
-
-On Backend EC2:
-
+```bash
 sudo systemctl status expense-tracker
 sudo journalctl -u expense-tracker -n 100 --no-pager
 sudo tail -n 100 /var/log/expense-tracker/expense-tracker-error.log
+```
 
 Check:
 
-server.js exists at /opt/expense-tracker/server.js.
+- `server.js` exists at `/opt/expense-tracker/server.js`.
+- `node_modules` exists.
+- `ExecStart` uses the correct Node.js binary path.
+- `.env` exists and contains the required variables.
+- The service user can read the application and `.env` files.
+- Port `5000` is not already occupied.
 
-node_modules exists.
+### 18.5 Backend cannot connect to MySQL
 
-ExecStart uses the correct Node.js binary path.
+> Backend EC2:
 
-.env exists and has the required variables.
-
-The service user can read the application and .env files.
-
-Port 5000 is not already occupied.
-
-Problem 5 — Backend cannot connect to MySQL
-
-On Backend EC2:
-
+```bash
 mysql -h DATABASE_PRIVATE_IP -u expense_user -p expense_tracker
+```
 
 Check:
 
-DB_HOST is the database private IP.
+- `DB_HOST` is the database private IP.
+- MySQL is running on Database EC2.
+- MySQL listens on the database private interface.
+- Database security group allows TCP `3306` from Backend SG.
+- MySQL account host matches the backend private IP.
+- Password and database name are correct.
 
-MySQL is running on Database EC2.
+> Database EC2:
 
-MySQL listens on the database private interface.
-
-Database security group allows TCP 3306 from Backend SG.
-
-The MySQL account host matches the backend private IP.
-
-The password and database name are correct.
-
-On Database EC2:
-
+```bash
 sudo systemctl status mysql
 sudo ss -lntp | grep 3306
+```
 
-Problem 6 — Browser reports an API/network error
+### 18.6 Browser reports an API/network error
 
-Test each layer separately:
+Test each layer separately.
 
-# Backend EC2
+> Backend EC2:
+
+```bash
 curl -i http://localhost:5000/api/expenses
+```
 
-# Frontend EC2
+> Frontend EC2:
+
+```bash
 curl -i http://BACKEND_PRIVATE_IP:5000/api/expenses
 curl -i http://localhost:8080/api/expenses
 curl -i http://localhost/api/expenses
+```
 
 The first failed test identifies the layer that needs investigation.
 
-Problem 7 — Service is active (exited)
+### 18.7 Service is `active (exited)`
 
-For expense-frontend.service, active (exited) is expected because it is a oneshot marker service. It is not Nginx.
+For `expense-frontend.service`, `active (exited)` is expected because it is a oneshot marker service. It is not Nginx.
 
-For Nginx, expect active (running).
+Expected states:
 
-For the Node.js backend, expect active (running).
+| Service | Expected status |
+|---|---|
+| Nginx | `active (running)` |
+| Node.js backend | `active (running)` |
+| MySQL | `active (running)` |
+| Optional frontend marker | `active (exited)` |
 
-For MySQL, expect active (running).
-
-Problem 8 — Ping fails between instances
+### 18.8 Ping fails between instances
 
 ICMP ping is not required for the application to work. A failed ping does not prove that TCP application connectivity is broken.
 
-Test the actual required TCP service instead, for example from Frontend EC2:
+Test the actual required TCP service instead. For example, from Frontend EC2:
 
+```bash
 curl -i http://BACKEND_PRIVATE_IP:5000/
+```
 
 Use security group rules and service listeners to troubleshoot application connectivity. Add ICMP only if you specifically need ping for diagnostics.
 
-Problem 9 — Domain does not open
+### 18.9 Domain does not open
 
 Check DNS resolution:
 
+```bash
 nslookup devcloud.store
 nslookup www.devcloud.store
+```
 
 Check:
 
-The Route 53 public hosted zone exists.
+- The Route 53 public hosted zone exists.
+- Hostinger is configured with the exact four Route 53 nameservers.
+- The A record points to the current frontend public IP or Elastic IP.
+- The `www` CNAME points to `devcloud.store`.
+- DNS changes have had time to propagate.
+- Frontend security group permits TCP port `80`.
+- Nginx is running and listening on port `80`.
 
-Hostinger is configured with the exact four Route 53 nameservers.
+### 18.10 Domain resolves, but website does not load
 
-The A record points to the current frontend public IP or Elastic IP.
+> Frontend EC2:
 
-The www CNAME points to devcloud.store.
-
-DNS changes have had time to propagate.
-
-Frontend security group permits TCP port 80.
-
-Nginx is running and listening on port 80.
-
-Problem 10 — Domain resolves, but website does not load
-
-On Frontend EC2:
-
+```bash
 sudo nginx -t
 sudo systemctl status nginx
 sudo ss -lntp | grep ':80'
 curl -i -H "Host: devcloud.store" http://localhost/
+```
 
 Check:
 
-The domain-specific Nginx configuration exists.
+- The domain-specific Nginx configuration exists.
+- It contains `server_name devcloud.store www.devcloud.store;`.
+- The root directory is `/opt/expense-frontend`.
+- Nginx has reloaded successfully.
+- The domain A record points to the correct frontend instance.
 
-The configuration contains server_name devcloud.store www.devcloud.store;.
+### 18.11 Domain and direct IP show different CSS or layouts
 
-The root directory is /opt/expense-frontend.
+Compare the active Nginx configurations:
 
-Nginx has reloaded successfully.
-
-The domain A record points to the correct frontend instance.
-
-Problem 11 — Domain and direct IP show different CSS or layouts
-
-Compare the two Nginx configurations:
-
+```bash
 sudo nginx -T | grep -n -B 10 -A 20 -E 'listen 8080|listen 80|server_name|root'
+```
 
 Both should serve:
 
+```text
 /opt/expense-frontend
+```
 
-Also inspect the files:
+Inspect the files:
 
+```bash
 ls -l /opt/expense-frontend/
+```
 
-Check the browser's developer tools for failed CSS or JavaScript requests. A different Nginx root, different frontend files or browser cache can cause different designs.
+Check the browser developer tools for failed CSS or JavaScript requests. A different Nginx root, different frontend files or browser cache can cause different designs.
 
-Problem 12 — API returns HTML instead of JSON
+### 18.12 API returns HTML instead of JSON
 
-A browser error such as:
+An error such as:
 
-Unexpected token '<', "<html>..." is not valid JSON
+```text
+Unexpected token '<', "..." is not valid JSON
+```
 
 can mean the request reached an Nginx HTML page instead of the backend API.
 
 Test:
 
+```bash
 curl -i http://devcloud.store/api/expenses
-curl -i http://54.152.118.78:8080/api/expenses
+curl -i http://FRONTEND_PUBLIC_IP:8080/api/expenses
+```
 
-Check that both the port 80 and port 8080 Nginx server blocks contain a correct /api/ location and proxy_pass pointing to the backend private IP.
+Check that both the port `80` and port `8080` Nginx server blocks contain a correct `/api/` location and `proxy_pass` pointing to the backend private IP.
 
-Problem 13 — PUT request does not update an expense
-
-Check:
-
-The PUT route exists in expenseRoutes.js.
-
-The route maps to the correct controller function.
-
-The frontend sends the correct expense ID.
-
-The request body uses the expected field names.
-
-The controller validates the ID and input.
-
-The database user has UPDATE permission.
-
-The backend logs show the PUT request and response status.
-
-Test the endpoint directly using curl.
-
-Problem 14 — DELETE request does not delete an expense
+### 18.13 PUT request does not update an expense
 
 Check:
 
-The DELETE route exists in expenseRoutes.js.
+- The PUT route exists in `expenseRoutes.js`.
+- The route maps to the correct controller function.
+- The frontend sends the correct expense ID.
+- The request body uses the expected field names.
+- The controller validates the ID and input.
+- The database user has `UPDATE` permission.
+- Backend logs show the PUT request and response status.
 
-The route maps to the correct controller function.
+Test the endpoint directly using `curl`.
 
-The expense ID is valid.
+### 18.14 DELETE request does not delete an expense
 
-The controller executes the intended DELETE query.
+Check:
 
-The database user has DELETE permission.
+- The DELETE route exists in `expenseRoutes.js`.
+- The route maps to the correct controller function.
+- The expense ID is valid.
+- The controller executes the intended DELETE query.
+- The database user has `DELETE` permission.
+- Backend logs show the DELETE request and response status.
 
-The backend logs show the DELETE request and response status.
+Verify the database record:
 
-Verify the database record after the operation:
-
+```sql
 SELECT * FROM expenses WHERE id = 1;
+```
 
-Replace 1 with the ID you tested.
+Replace `1` with the ID you tested.
 
-Problem 15 — Nginx reports duplicate default server
+### 18.15 Nginx reports duplicate default server
 
 Inspect all active configurations:
 
+```bash
 sudo nginx -T | grep -n -E 'listen 80|default_server'
+```
 
-If an existing configuration already declares listen 80 default_server, do not add another default server for the same address and port.
+If an existing configuration already declares `listen 80 default_server`, do not add another default server for the same address and port.
 
 The domain-specific server block can use:
 
+```nginx
 listen 80;
 server_name devcloud.store www.devcloud.store;
+```
 
 Test again:
 
+```bash
 sudo nginx -t
+```
 
 Do not delete the existing default configuration unless you have confirmed it is no longer required.
 
-21. Final completion checklist
-
-AWS infrastructure
-
-Three Ubuntu EC2 instances are running.
-
-All three instances are in the intended VPC.
-
-Private IP addresses have been recorded.
-
-Frontend, backend and database security groups are attached correctly.
-
-SSH is restricted to the administrator's IP or an approved private access method.
-
-Frontend port 80 is accessible for domain HTTP traffic.
-
-Frontend port 8080 is accessible from the permitted client IP.
-
-Backend port 5000 is not publicly exposed.
-
-Database port 3306 is not publicly exposed.
-
-Database tier
-
-MySQL is installed and running.
-
-MySQL is enabled at boot.
-
-MySQL listens on the database private IP.
-
-expense_tracker database exists.
-
-expenses table exists.
-
-expense_user is restricted to the backend host.
-
-Backend can connect to MySQL.
-
-Database user has the required CRUD permissions.
-
-Backend tier
-
-Node.js and npm are installed.
-
-Backend source files are in /opt/expense-tracker.
-
-.env has the correct values and is protected.
-
-expenseapp system user exists.
-
-Backend log files exist with restricted permissions.
-
-expense-tracker.service is enabled and active.
-
-Backend API responds on port 5000.
-
-GET endpoint works.
-
-POST endpoint works.
-
-PUT endpoint works.
-
-DELETE endpoint works.
-
-Frontend tier
-
-Nginx is installed, enabled and running.
-
-frontendapp system user exists.
-
-Frontend files are in /opt/expense-frontend.
-
-Nginx configuration passes nginx -t.
-
-Nginx listens on port 8080.
-
-Nginx listens on port 80 for the custom domain.
-
-Both configurations serve /opt/expense-frontend.
-
-Both configurations proxy /api/ to the correct backend private IP.
-
-Frontend page opens using the direct IP URL.
-
-Frontend page opens using the custom domain.
-
-Domain and DNS
-
-devcloud.store is registered through Hostinger.
-
-A Route 53 public hosted zone exists for devcloud.store.
-
-Hostinger nameservers match the four Route 53 NS records.
-
-Root-domain A record points to the frontend public IP or Elastic IP.
-
-www CNAME points to devcloud.store.
-
-devcloud.store resolves correctly.
-
-www.devcloud.store resolves correctly.
-
-Domain requests reach Nginx on port 80.
-
-Domain API requests reach the backend through Nginx.
-
-HTTPS certificate and redirection are configured before production use.
-
-End-to-end and operations
-
-Browser can retrieve expenses.
-
-Browser can add an expense.
-
-Browser can update an expense.
-
-Browser can delete an expense.
-
-Database records reflect the CRUD operations.
-
-Backend request logs are being written.
-
-Nginx access and error logs are available.
-
-Services start successfully after reboot.
-
-Database backup and HTTPS plans are in place before production use.
-
-22. Useful commands reference
-
-Service status
-
+---
+
+## 19. Final deployment checklist
+
+Use this checklist to confirm the deployment is complete.
+
+### AWS infrastructure
+
+- [ ] Three Ubuntu EC2 instances are running.
+- [ ] All three instances are in the intended VPC.
+- [ ] Private IP addresses have been recorded.
+- [ ] Frontend, backend and database security groups are attached correctly.
+- [ ] SSH is restricted to the administrator's IP or an approved private access method.
+- [ ] Frontend port `80` is accessible for domain HTTP traffic.
+- [ ] Frontend port `8080` is accessible from the permitted client IP.
+- [ ] Backend port `5000` is not publicly exposed.
+- [ ] Database port `3306` is not publicly exposed.
+
+### Database tier
+
+- [ ] MySQL is installed and running.
+- [ ] MySQL is enabled at boot.
+- [ ] MySQL listens on the database private IP.
+- [ ] `expense_tracker` database exists.
+- [ ] `expenses` table exists.
+- [ ] `expense_user` is restricted to the backend host.
+- [ ] Backend can connect to MySQL.
+- [ ] Database user has the required CRUD permissions.
+
+### Backend tier
+
+- [ ] Node.js and npm are installed.
+- [ ] Backend source files are in `/opt/expense-tracker`.
+- [ ] `.env` has the correct values and is protected.
+- [ ] `expenseapp` system user exists.
+- [ ] Backend log files exist with restricted permissions.
+- [ ] `expense-tracker.service` is enabled and active.
+- [ ] Backend API responds on port `5000`.
+- [ ] GET endpoint works.
+- [ ] POST endpoint works.
+- [ ] PUT endpoint works.
+- [ ] DELETE endpoint works.
+
+### Frontend tier
+
+- [ ] Nginx is installed, enabled and running.
+- [ ] `frontendapp` system user exists.
+- [ ] Frontend files are in `/opt/expense-frontend`.
+- [ ] Nginx configuration passes `nginx -t`.
+- [ ] Nginx listens on port `8080`.
+- [ ] Nginx listens on port `80` for the custom domain.
+- [ ] Both configurations serve `/opt/expense-frontend`.
+- [ ] Both configurations proxy `/api/` to the correct backend private IP.
+- [ ] Frontend page opens using the direct IP URL.
+- [ ] Frontend page opens using the custom domain.
+
+### Domain and DNS
+
+- [ ] `devcloud.store` is registered through Hostinger.
+- [ ] A Route 53 public hosted zone exists for `devcloud.store`.
+- [ ] Hostinger nameservers match the four Route 53 NS records.
+- [ ] Root-domain A record points to the frontend public IP or Elastic IP.
+- [ ] `www` CNAME points to `devcloud.store`.
+- [ ] `devcloud.store` resolves correctly.
+- [ ] `www.devcloud.store` resolves correctly.
+- [ ] Domain requests reach Nginx on port `80`.
+- [ ] Domain API requests reach the backend through Nginx.
+- [ ] HTTPS certificate and redirection are configured before production use.
+
+### End-to-end and operations
+
+- [ ] Browser can retrieve existing expenses.
+- [ ] Browser can add a new expense.
+- [ ] Browser can update an expense.
+- [ ] Browser can delete a test expense.
+- [ ] Database records match the operations performed.
+- [ ] Backend application logs are working.
+- [ ] Backend error logs are accessible.
+- [ ] Nginx access and error logs are accessible.
+- [ ] MySQL service status and logs are accessible.
+- [ ] MySQL starts after reboot.
+- [ ] Backend starts after reboot.
+- [ ] Nginx starts after reboot.
+- [ ] Application works after rebooting the instances one at a time.
+
+---
+
+## 20. Useful commands reference
+
+### Check service status
+
+```bash
 sudo systemctl status nginx
 sudo systemctl status expense-tracker
 sudo systemctl status mysql
+```
 
-Start, stop and restart
+### Start, stop and restart a service
 
+```bash
 sudo systemctl start SERVICE_NAME
 sudo systemctl stop SERVICE_NAME
 sudo systemctl restart SERVICE_NAME
+```
 
-Enable at boot
+### Enable a service at boot
 
+```bash
 sudo systemctl enable SERVICE_NAME
+```
 
-Check whether enabled
+### Check whether a service is enabled
 
+```bash
 sudo systemctl is-enabled SERVICE_NAME
+```
 
-Follow logs
+### Follow service and application logs
 
+```bash
 sudo journalctl -u SERVICE_NAME -f
 sudo tail -f /var/log/expense-tracker/expense-tracker.log
 sudo tail -f /var/log/nginx/access.log
 sudo tail -f /var/log/nginx/error.log
+```
 
-Check listening ports
+### Check listening ports
 
+```bash
 sudo ss -lntp
+```
 
-Test HTTP endpoints
+### Test local HTTP endpoints
 
+```bash
 curl -i http://localhost:8080/
 curl -i http://localhost:8080/api/expenses
 
@@ -2552,115 +2156,95 @@ curl -i http://localhost/api/expenses
 
 curl -i http://localhost:5000/
 curl -i http://localhost:5000/api/expenses
+```
 
-Test domain endpoints
+### Test domain endpoints
 
+```bash
 curl -i http://devcloud.store/
 curl -i http://www.devcloud.store/
 curl -i http://devcloud.store/api/expenses
+```
 
-Check DNS
+### Check DNS
 
+```bash
 nslookup devcloud.store
 nslookup www.devcloud.store
 
 dig devcloud.store
 dig www.devcloud.store
 dig NS devcloud.store
+```
 
-Validate and reload Nginx
+### Validate and inspect Nginx
 
+```bash
 sudo nginx -t
 sudo nginx -T
 sudo systemctl reload nginx
+```
 
-Reload systemd after changing a unit file
+### Reload systemd after changing a unit file
 
+```bash
 sudo systemctl daemon-reload
 sudo systemctl restart expense-tracker
+```
 
-Check Nginx port configuration
+### Inspect Nginx port and proxy configuration
 
+```bash
 sudo nginx -T | grep -n -B 10 -A 20 -E 'listen 8080|listen 80|server_name|root|proxy_pass'
+```
 
-23. Current project scope and limitations
+---
 
-The application supports all four CRUD operations: POST /api/expenses, GET /api/expenses, PUT /api/expenses/:id and DELETE /api/expenses/:id.
+## 21. Project scope and limitations
 
-The frontend is static HTML, CSS and JavaScript served by Nginx.
+- The application supports all four CRUD operations: `POST /api/expenses`, `GET /api/expenses`, `PUT /api/expenses/:id` and `DELETE /api/expenses/:id`.
+- The frontend is static HTML, CSS and JavaScript served by Nginx.
+- Nginx serves the frontend through port `8080` for direct IP access and port `80` for custom-domain access.
+- Both Nginx configurations should use `/opt/expense-frontend` as the document root.
+- Nginx proxies `/api/` requests to the backend private IP on port `5000`.
+- The domain `devcloud.store` was purchased through Hostinger.
+- Amazon Route 53 is used for DNS hosting through a public hosted zone.
+- The root domain uses an A record pointing to the frontend public IPv4 address.
+- `www.devcloud.store` uses a CNAME record pointing to `devcloud.store`.
+- The domain's authoritative nameservers must be configured at Hostinger to match the Route 53 hosted zone.
+- The domain uses HTTP unless a TLS certificate has separately been installed and verified.
+- Nginx uses the standard Ubuntu log files at `/var/log/nginx/access.log` and `/var/log/nginx/error.log`. Dedicated custom Nginx log files can be configured later.
+- The optional `expense-frontend.service` is a oneshot marker, not the frontend web server. Nginx is the actual web server.
+- Private IPs shown in this documentation are examples from the original lab. Replace them with the values in your AWS environment.
+- The frontend source in the repository is a reproducible project copy and may not be byte-for-byte identical to every styling change made directly on the original EC2 instance.
+- The frontend public IP shown in the original lab is a recorded value, not a guaranteed current address. If it changes, update the Route 53 A record. An Elastic IP is recommended for stable domain mapping.
+- This guide describes a learning deployment. Production use requires additional work such as HTTPS, authentication, authorization, backups, monitoring, log rotation, stronger operational controls and an application security review.
 
-Nginx serves the frontend through port 8080 for direct IP access and port 80 for custom-domain access.
+### Deployment order at a glance
 
-Both Nginx configurations should use /opt/expense-frontend as the document root.
+Follow this sequence when building from scratch:
 
-Nginx proxies /api/ requests to the backend private IP on port 5000.
+1. Create or select the VPC and networking.
+2. Create the three security groups.
+3. Launch Frontend, Backend and Database EC2 instances.
+4. Record private IP addresses and the frontend public IP.
+5. Configure MySQL on Database EC2.
+6. Create the database, application user and table.
+7. Install Node.js and deploy backend files on Backend EC2.
+8. Configure `.env`, service user, logs and systemd on Backend EC2.
+9. Install Nginx and deploy frontend files on Frontend EC2.
+10. Configure Nginx port `8080` for direct IP access.
+11. Configure Nginx port `80` for the custom domain.
+12. Start and enable services.
+13. Create the Route 53 public hosted zone.
+14. Update Hostinger nameservers to the Route 53 nameservers.
+15. Create the Route 53 A and CNAME records.
+16. Test DNS resolution and domain access.
+17. Test backend, frontend, CRUD APIs and database separately.
+18. Add, retrieve, update and delete expenses through the application.
+19. Verify database records and inspect application/Nginx logs.
+20. Reboot one instance at a time and verify automatic startup.
 
-The domain devcloud.store was purchased through Hostinger.
+---
 
-Amazon Route 53 is used for DNS hosting through a public hosted zone.
-
-The root domain uses an A record pointing to the frontend public IPv4 address.
-
-www.devcloud.store uses a CNAME record pointing to devcloud.store.
-
-The domain's authoritative nameservers must be configured at Hostinger to match the Route 53 hosted zone.
-
-The domain currently uses HTTP unless a TLS certificate has separately been installed and verified.
-
-Nginx uses the standard Ubuntu log files at /var/log/nginx/access.log and /var/log/nginx/error.log. Dedicated custom Nginx log files can be configured later.
-
-The optional expense-frontend.service is a oneshot marker, not the frontend web server. Nginx is the actual web server.
-
-The private IPs shown in this documentation are examples from the original lab. Replace them with the values in your AWS environment.
-
-The frontend source in this package is a reproducible project copy and may not be byte-for-byte identical to every styling change made directly on the original EC2 instance.
-
-The frontend public IP shown in the DNS example is the currently recorded value. If it changes, update the Route 53 A record. An Elastic IP is recommended for stable domain mapping.
-
-This guide is for a learning deployment. Production use requires additional work such as HTTPS, authentication, authorization, backups, monitoring, log rotation, stronger operational controls and a review of application security.
-
-Deployment order at a glance
-
-Follow this exact order when building from scratch:
-
-Create/select the VPC and networking.
-
-Create the three security groups.
-
-Launch Frontend, Backend and Database EC2 instances.
-
-Record private IP addresses and the frontend public IP.
-
-Configure MySQL on Database EC2.
-
-Create the database, application user and table.
-
-Install Node.js and deploy backend files on Backend EC2.
-
-Configure .env, service user, logs and systemd on Backend EC2.
-
-Install Nginx and deploy frontend files on Frontend EC2.
-
-Configure Nginx port 8080 for direct IP access.
-
-Configure Nginx port 80 for the custom domain.
-
-Start and enable services.
-
-Register the domain through Hostinger and create the Route 53 public hosted zone.
-
-Update Hostinger nameservers to the Route 53 nameservers.
-
-Create the Route 53 A and CNAME records.
-
-Test DNS resolution and domain access.
-
-Test backend, frontend, CRUD APIs and database separately.
-
-Add, retrieve, update and delete expenses through the application.
-
-Verify database records and inspect application/Nginx logs.
-
-Reboot one instance at a time and verify automatic startup.
-
-If you are following this for the first time, complete one step, verify its expected result, and then move to the next step.
+**Learning approach:** Complete one step, verify its expected result, and only then move to the next step. This makes it easier to understand the full request flow and isolate problems when something fails.
